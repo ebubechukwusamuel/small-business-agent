@@ -15,6 +15,35 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 
+  async function resendConfirmation() {
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+    if (!configured) {
+      setError("Supabase is not configured yet.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setMessage("");
+    try {
+      const supabase = createClient();
+      const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\\/+$/, "") || window.location.origin;
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+        options: { emailRedirectTo: redirectBase + "/auth/callback" },
+      });
+      if (resendError) throw resendError;
+      setMessage("A new verification email has been requested. Use the newest email and ignore the old localhost link.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't request another verification email.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -35,7 +64,7 @@ export default function LoginPage() {
         const { data, error: authError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { emailRedirectTo: window.location.origin + "/auth/callback" },
+          options: { emailRedirectTo: (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin) + "/auth/callback" },
         });
         if (authError) throw authError;
         if (!data.session) {
@@ -93,6 +122,7 @@ export default function LoginPage() {
             </button>
           </form>
           <div className="auth-switch">{mode === "signin" ? "New to Small Business Agent?" : "Already have an account?"} <button type="button" className="link-button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setMessage(""); }}>{mode === "signin" ? "Create an account" : "Sign in"}</button></div>
+          <div className="auth-switch"><button type="button" className="link-button" disabled={loading || !email.trim()} onClick={resendConfirmation}>Resend verification email</button></div>
           <div className="auth-security"><ShieldCheck size={16} /><span>Your leads are private to your workspace. Follow-up sending is not connected.</span></div>
         </div>
         <p className="auth-panel-footer">A practical workspace for the work that happens after a new lead comes in.</p>
