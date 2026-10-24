@@ -89,7 +89,7 @@ All eight have RLS enabled. The initial hosted schema was applied and verified d
 
 ## Vercel
 
-A new Vercel project named `small-business-agent` has been created, but it has no deployment yet. Its public Supabase connection settings are configured. Keep AI variables absent until cost approval. Do not deploy until you are ready to test the preview; builds and AI/provider usage should be checked against your plan and usage limits first.
+A preview build is ready at [Small Business Agent preview](https://small-business-agent-gjc373jvt-ebubesamuel978-5695s-projects.vercel.app). Vercel SSO/deployment protection is enabled, so access may require signing into the Vercel team. The preview was built from source copied from the `main` branch; this Vercel project is not yet connected to Git for automatic deployments on future pushes. Public Supabase connection settings are configured. AI variables remain absent until provider pricing is reviewed and approved. This is a protected preview, not a production release.
 
 ## Safe initial test plan
 
