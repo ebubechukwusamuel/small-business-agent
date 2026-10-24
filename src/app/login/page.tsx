@@ -47,7 +47,7 @@ export default function LoginPage() {
         options: { emailRedirectTo: redirectBase + "/auth/callback" },
       });
       if (resendError) throw resendError;
-      setMessage("A new verification email has been requested. Use the newest email and ignore the old localhost link.");
+      setMessage("A new verification email has been requested. Check your inbox and spam folder for the newest message.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't request another verification email.");
     } finally {
@@ -73,7 +73,7 @@ export default function LoginPage() {
     try {
       const supabase = createClient();
       if (recoveryMode) {
-        const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\\/+$/, "") || window.location.origin;
+        const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin;
         const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: redirectBase + "/auth/callback?next=%2Freset-password",
         });
@@ -148,7 +148,7 @@ export default function LoginPage() {
             <h2>{recoveryMode ? "Reset your password" : mode === "signin" ? "Welcome back" : "Create your account"}</h2>
             <p>{recoveryMode ? "Enter your account email and we’ll send a secure reset link if it’s registered." : mode === "signin" ? "Sign in to pick up where your team left off." : "Start organising your leads in one place."}</p>
           </div>
-          {!configured && <div className="notice notice-warning"><strong>Setup needed</strong><span>Supabase connection values are not configured yet. The app will become available once .env.local is filled in.</span></div>}
+          {!configured && <div className="notice notice-warning"><strong>Setup needed</strong><span>Supabase connection values are not configured yet. Add the Supabase project URL and publishable key to the deployment environment variables.</span></div>}
           {error && <div className="notice notice-error" role="alert">{error}</div>}
           {message && <div className="notice notice-success" role="status">{message}</div>}
           <form className="auth-form" onSubmit={onSubmit}>
