@@ -14,6 +14,7 @@ type IntegrationStatus = {
     mailboxCount: number;
     defaultMailbox: { id: string; email: string; name?: string | null } | null;
     sequenceConfigured: boolean;
+    liveSendReady: boolean;
     sequenceReadyForEnrollment: boolean;
     canActivateSequence: boolean;
     sequenceTemplatesApproved: boolean;
