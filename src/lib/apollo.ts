@@ -3,6 +3,17 @@ export type ApolloEmailAccount = {
   email: string;
   default?: boolean;
   name?: string | null;
+  active?: boolean;
+  revoked_at?: string | null;
+}; 
+
+export type ApolloSequence = {
+  id: string;
+  name: string;
+  active: boolean;
+  num_steps?: number;
+  unique_scheduled?: number;
+  contact_statuses?: { active?: number; paused?: number; finished?: number; failed?: number };
 };
 
 export class ApolloApiError extends Error {
@@ -61,4 +72,20 @@ export async function getApolloEmailAccounts(): Promise<ApolloEmailAccount[]> {
     : Array.isArray(result.emailAccounts)
       ? result.emailAccounts
       : [];
+}
+
+
+export async function getApolloSequence(sequenceId: string): Promise<ApolloSequence | null> {
+  const result = await apolloRequest<{ emailer_campaigns?: ApolloSequence[] }>(
+    "/emailer_campaigns/search",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        q_name: "Mazion | AI Automation | B2B Services",
+        per_page: 10,
+        page: 1,
+      }),
+    },
+  );
+  return (result.emailer_campaigns || []).find((sequence) => sequence.id === sequenceId) || null;
 }
