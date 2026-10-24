@@ -576,6 +576,32 @@ export default function Dashboard() {
             <h2>{workspace?.name}</h2><p>Signed in as {email}</p>
             <p><ShieldCheck size={16} /> Every outreach message must be reviewed and approved before sending.</p>
           </div>
+          <form className="panel settings-panel form-stack" onSubmit={saveBusinessProfile}>
+            <div className="panel-heading"><div><h2>Business context for AI</h2><p>Every workspace has its own business profile. AI uses this to understand what you sell and how to write.</p></div></div>
+            <div className="two-col">
+              <label>Industry<input className="text-input" value={businessProfileForm.industry || ""} onChange={e => setBusinessProfileForm({ ...businessProfileForm, industry: e.target.value })} placeholder="e.g. Business automation" /></label>
+              <label>Website<input className="text-input" type="url" value={businessProfileForm.website || ""} onChange={e => setBusinessProfileForm({ ...businessProfileForm, website: e.target.value })} placeholder="https://..." /></label>
+            </div>
+            <label>What does your business sell or help with?<textarea className="text-input" rows={3} maxLength={1200} value={businessProfileForm.offering || ""} onChange={e => setBusinessProfileForm({ ...businessProfileForm, offering: e.target.value })} placeholder="Products, services, and the problems you solve." required /></label>
+            <label>Who is your ideal customer?<textarea className="text-input" rows={2} maxLength={800} value={businessProfileForm.ideal_customer || ""} onChange={e => setBusinessProfileForm({ ...businessProfileForm, ideal_customer: e.target.value })} placeholder="Roles, industries, company sizes, or customer types." required /></label>
+            <label>Why do customers choose you?<textarea className="text-input" rows={2} maxLength={800} value={businessProfileForm.differentiator || ""} onChange={e => setBusinessProfileForm({ ...businessProfileForm, differentiator: e.target.value })} placeholder="Real strengths or proof points. AI won't invent results." /></label>
+            <div className="two-col">
+              <label>Writing style<select className="text-input" value={businessProfileForm.voice || "friendly and conversational"} onChange={e => setBusinessProfileForm({ ...businessProfileForm, voice: e.target.value })}><option value="friendly and conversational">Friendly and conversational</option><option value="professional and direct">Professional and direct</option><option value="warm and helpful">Warm and helpful</option><option value="confident and concise">Confident and concise</option></select></label>
+              <label>Preferred next step<select className="text-input" value={businessProfileForm.call_to_action || "book a short discovery call"} onChange={e => setBusinessProfileForm({ ...businessProfileForm, call_to_action: e.target.value })}><option value="book a short discovery call">Book a short call</option><option value="reply to this email">Reply to the email</option><option value="view the website">Visit the website</option><option value="request a quote">Request a quote</option></select></label>
+            </div>
+            <div className="modal-actions"><span className="muted">Saved per workspace</span><button className="btn btn-primary" disabled={profileSaving}>{profileSaving ? "Saving…" : "Save business context"}</button></div>
+          </form>
+          <div className="panel settings-panel">
+            <div className="panel-heading"><div><h2>Connect your Gmail</h2><p>When connected, AI can check recent emails with the lead and sending uses your own Gmail account.</p></div><span className={gmailStatus?.connected ? "status-badge good" : "status-badge waiting"}>{gmailStatus?.connected ? "Connected" : gmailStatus?.configured ? "Not connected" : "Setup needed"}</span></div>
+            {gmailStatus?.connected
+              ? <><p><Mail size={16} /> Connected account: {gmailStatus.email}</p><p><ShieldCheck size={16} /> Granted access: read relevant email history and send email as you.</p><div className="row-actions"><button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void loadGmailStatus()}>{gmailLoading ? "Checking…" : "Refresh status"}</button><button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void disconnectGmail()}>{gmailLoading ? "Working…" : "Disconnect Gmail"}</button></div></>
+              : <><p><ShieldCheck size={16} /> Your Gmail connection is per user. Each team member connects their own mailbox and can revoke it later.</p>
+                {!gmailStatus?.configured && <p className="muted">Not ready to connect yet: the app owner must configure Google OAuth credentials and private encrypted token storage. The setup values belong in Vercel server environment variables, not in chat or browser code.</p>}
+                {gmailStatus?.reason && <p className="muted">{gmailStatus.reason}</p>}
+                <a className={"btn btn-primary " + (!gmailStatus?.configured ? "btn-disabled" : "")} href={gmailStatus?.configured ? "/api/gmail/connect" : undefined} aria-disabled={!gmailStatus?.configured} onClick={e => { if (!gmailStatus?.configured) e.preventDefault(); }}> <Mail size={16} /> Connect Gmail</a>
+                <p className="muted">Google will ask you to grant the permissions. Because reading Gmail is a sensitive permission, Google may require OAuth app verification before external users can connect. Only lead-specific messages are fetched when you ask the AI to draft.</p>
+              </>}
+          </div>
           <div className="panel settings-panel">
             <div className="panel-heading"><div><h2>AI draft generation</h2><p>Uses a server-side model; the API key is never sent to the browser.</p></div><span className={integrations?.ai.ready ? "status-badge good" : "status-badge waiting"}>{integrations?.ai.ready ? "Connected" : "Setup needed"}</span></div>
             <p><Sparkles size={16} /> Model: {integrations?.ai.model || "Not selected"}</p>
@@ -584,8 +610,8 @@ export default function Dashboard() {
             {!integrations?.ai.authConfigured && <p className="muted">The hosted app can use Vercel's built-in OIDC authentication. For local development, add AI_GATEWAY_API_KEY to your private .env.local file. The AI Gateway currently includes $5/month of usage; don't purchase paid credits without reviewing the cost first.</p>}
           </div>
           <div className="panel settings-panel">
-            <div className="panel-heading"><div><h2>Apollo email sending</h2><p>Approved drafts are sent using your connected Apollo mailbox.</p></div><span className={integrations?.apollo.liveSendReady ? "status-badge good" : "status-badge waiting"}>{integrations?.apollo.liveSendReady ? "Connected" : "Setup needed"}</span></div>
-            <p><Mail size={16} /> Apollo API key: {integrations?.apollo.apiKeyConfigured ? "configured" : "not configured"}</p>
+            <div className="panel-heading"><div><h2>Apollo sequence integration (optional)</h2><p>Separate from direct Gmail sending. Use this only if you want Apollo to schedule multi-step campaigns.</p></div><span className={integrations?.apollo.liveSendReady ? "status-badge good" : "status-badge waiting"}>{integrations?.apollo.liveSendReady ? "Connected" : "Setup needed"}</span></div>
+            <p><Workflow size={16} /> Apollo API key: {integrations?.apollo.apiKeyConfigured ? "configured" : "not configured"}</p>
             <p><Users size={16} /> Sending mailboxes connected: {integrations?.apollo.mailboxCount ?? "not checked"}</p>
             {integrations?.apollo.defaultMailbox?.email && <p><Check size={16} /> Default sender: {integrations.apollo.defaultMailbox.email}</p>}
             {integrations?.apollo.connectionError && <p className="notice notice-error">{integrations.apollo.connectionError}</p>}
