@@ -60,6 +60,20 @@ npm run typecheck
 npm run build
 ```
 
+## Enable the outreach integrations
+
+The hosted Vercel deployment can use Vercel AI Gateway through built-in OIDC, so no AI Gateway key is required for that deployment. The app is configured to use `anthropic/claude-haiku-4.5` and caps output to 500 tokens. Vercel currently includes `$5/month` in AI Gateway usage for teams; do not purchase extra credits without reviewing the price first.
+
+For Apollo:
+
+1. In Apollo, open **Settings → Integrations → API Keys → Create new key**. Scope it to the endpoints used by this integration: email accounts list, contacts search/create, email draft create/send/status, and sequence search/activate/add contacts. Some Apollo endpoints require a master key; consult the endpoint permissions shown in Apollo when creating the key.
+2. In Apollo, open **Settings → Outbound → Mailbox → Link mailbox** and connect the individual Gmail or Microsoft inbox you intend to send from. Set it as the default and confirm it is active.
+3. In Vercel, open the `small-business-agent` project → Settings → Environment Variables. Add `APOLLO_API_KEY` as an encrypted server-only variable for Preview and Production. Do not prefix it with `NEXT_PUBLIC_` and do not paste the secret into chat.
+4. Review the existing Apollo sequence `Mazion | AI Automation | B2B Services`. Its 3 follow-up steps currently need subject lines, and the touches were awaiting review when last checked. Keep it inactive until the subjects and all touches are approved.
+5. Only after the sequence has been reviewed and approved, set `APOLLO_SEQUENCE_READY=true` as a server-side Vercel environment variable and redeploy. The app will then allow an owner/admin to activate the sequence and separately enroll individual approved leads, each behind an explicit confirmation.
+
+The single-email action sends only a previously approved app draft and requires a per-message confirmation. The automated sequence uses Apollo's sequence templates and schedule. Demo addresses (`.example`, `.test`, `.invalid`) are blocked. This app does not enroll leads automatically or send anything merely because a draft was approved.
+
 ## AI draft setup (optional, cost-sensitive)
 
 Do not fill these values until the provider/model has been chosen and its pricing reviewed. The endpoint returns a setup message without calling a model when either value is missing.
