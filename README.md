@@ -105,7 +105,7 @@ The initial hosted schema and follow-on changes were applied and verified direct
 
 ## Vercel
 
-A preview build is ready at [Small Business Agent preview](https://small-business-agent-gjc373jvt-ebubesamuel978-5695s-projects.vercel.app). Vercel SSO/deployment protection is enabled, so access may require signing into the Vercel team. The preview was built from source copied from the `main` branch; this Vercel project is not yet connected to Git for automatic deployments on future pushes. Public Supabase connection settings are configured. AI variables remain absent until provider pricing is reviewed and approved. This is a protected preview, not a production release.
+The latest build is ready at [Small Business Agent](https://small-business-agent-ebubesamuel978-5695s-projects.vercel.app). This is a preview build, not a production release. Public Supabase connection settings, the AI model ID, and the Gmail OAuth callback URL are configured. The hosted app is set up for Vercel AI Gateway's OIDC authentication, but a live AI draft has not yet been verified end to end. Gmail is not yet connectable until the app owner adds a Google OAuth client ID and secret to Vercel environment variables. The source lives on GitHub, and automatic Git deployments should be verified in Vercel project settings before relying on them.
 
 ## Safe initial test plan
 
@@ -123,4 +123,5 @@ A preview build is ready at [Small Business Agent preview](https://small-busines
 - Capture an accurate schema baseline/migration file for reproducible database setup.
 - Connect the source to the new Vercel project and deploy a preview after checking expected usage/cost.
 - Add tests for RLS role isolation, CSV edge cases, duplicate handling, and draft approval transitions.
-- Add email sending and n8n only as separate, explicitly approved stages, with an approval gate before any real send.
+- Add the Google OAuth client credentials and test Gmail connect/history-sync/send using a permitted test recipient before enabling real outreach.
+- Review the optional Apollo sequence templates before deliberately activating scheduled outreach; it remains inactive.
