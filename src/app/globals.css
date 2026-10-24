@@ -336,3 +336,14 @@
   .spin { animation: none; }
   .btn { transition: none; }
 }
+
+
+.auth-mobile-brand { display: none; }
+@media (max-width: 720px) {
+  .auth-mobile-brand {
+    display: flex;
+    width: fit-content;
+    margin: 0 0 28px;
+  }
+  .auth-panel-wrap .auth-panel-heading { margin-bottom: 21px; }
+}
