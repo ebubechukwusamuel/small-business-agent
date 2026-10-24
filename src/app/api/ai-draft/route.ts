@@ -2,7 +2,6 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getRecentGmailConversation } from "@/lib/gmail";
 
 const DraftOutput = z.object({
   subject: z.string().min(3).max(140),
@@ -12,7 +11,7 @@ const DraftOutput = z.object({
 export async function POST(request: NextRequest) {
   // AI Gateway authenticates hosted Vercel deployments with OIDC. Local/dev builds can use
   // AI_GATEWAY_API_KEY instead. Never expose either credential to the browser.
-  const gatewayAuthConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
+  const gatewayAuthConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL === "1");
   if (!gatewayAuthConfigured || !process.env.AI_DRAFT_MODEL) {
     return NextResponse.json(
       { error: "AI drafting is not configured on this deployment yet. Add a server-side AI Gateway key for non-Vercel environments or verify the deployment's Vercel OIDC identity." },
@@ -48,20 +47,37 @@ export async function POST(request: NextRequest) {
     .eq("id", body.workspaceId)
     .maybeSingle();
   if (workspaceError || !workspace) return NextResponse.json({ error: "Workspace not found, or you don't have access to it." }, { status: 404 });
-  const businessProfile = workspace.business_profile && typeof workspace.business_profile === "object"
-    ? workspace.business_profile as Record<string, unknown>
-    : {};
 
-  let priorEmails: Awaited<ReturnType<typeof getRecentGmailConversation>> = [];
+  const { data: savedProfile } = await supabase
+    .from("business_profiles")
+    .select("business_name,website,industry,business_description,products_services,ideal_customer,target_market,value_proposition,business_goals,writing_tone,writing_preferences,preferred_language,email_history_consent")
+    .eq("workspace_id", body.workspaceId)
+    .maybeSingle();
+  const businessProfile: Record<string, unknown> = savedProfile
+    ? savedProfile as unknown as Record<string, unknown>
+    : workspace.business_profile && typeof workspace.business_profile === "object"
+      ? workspace.business_profile as Record<string, unknown>
+      : {};
+
+  let priorEmails: Array<{ date: string; from: string; to: string[]; subject: string; direction: string; body: string }> = [];
   let emailHistoryAvailable = false;
-  if (lead.email) {
-    try {
-      priorEmails = await getRecentGmailConversation(user.id, lead.email);
-      emailHistoryAvailable = true;
-    } catch {
-      // Lack of a Gmail connection must not break template drafting. The model is told that
-      // it has no verified email history and must never claim to be following up on a sent email.
-    }
+  if (savedProfile?.email_history_consent && lead.email) {
+    const { data: messages } = await supabase
+      .from("email_history")
+      .select("message_date,from_email,to_emails,subject,direction,body_text")
+      .eq("workspace_id", body.workspaceId)
+      .eq("lead_id", body.leadId)
+      .order("message_date", { ascending: false })
+      .limit(6);
+    priorEmails = (messages || []).map((message) => ({
+      date: message.message_date || "",
+      from: message.from_email || "",
+      to: message.to_emails || [],
+      subject: message.subject || "",
+      direction: message.direction || "unknown",
+      body: (message.body_text || "").slice(0, 1800),
+    }));
+    emailHistoryAvailable = priorEmails.length > 0;
   }
 
   let researchSummary = "No research notes have been added yet. Do not invent facts about this prospect.";
@@ -97,7 +113,7 @@ export async function POST(request: NextRequest) {
         business: { workspaceName: workspace.name, profile: businessProfile },
         lead,
         research: researchSummary,
-        verifiedEmailHistory: priorEmails.map(({ date, from, to, subject, direction, body, snippet }) => ({ date, from, to, subject, direction, body, snippet })),
+        verifiedEmailHistory: priorEmails,
         instructions: "Write a personalised email under 150 words. Use the business's preferred writing voice and call to action. Use the contact's first name when appropriate. If history includes an incoming reply, answer it naturally rather than pretending the conversation is cold. Do not state that a message has been sent; this output is only a draft."
       }),
     });
@@ -109,6 +125,7 @@ export async function POST(request: NextRequest) {
         businessProfile: Object.values(businessProfile).some(value => typeof value === "string" && value.trim().length > 0),
         priorEmails: priorEmails.length,
         emailHistoryAvailable,
+        emailHistoryConsent: Boolean(savedProfile?.email_history_consent),
       },
     });
   } catch (error) {
