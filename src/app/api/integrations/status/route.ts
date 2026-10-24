@@ -60,7 +60,7 @@ export async function GET() {
 
   return NextResponse.json({
     ai: {
-      keyConfigured: aiKeyConfigured,
+      authConfigured: aiKeyConfigured,
       modelConfigured: Boolean(aiModel),
       model: aiModel,
       ready: aiKeyConfigured && Boolean(aiModel),
