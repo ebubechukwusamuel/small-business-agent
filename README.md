@@ -41,7 +41,7 @@ Requirements: Node.js 22 or newer and npm.
 NEXT_PUBLIC_SITE_URL=https://your-deployed-app-url
    ```
 
-   Never put a Supabase `service_role` or secret API key into a `NEXT_PUBLIC_` variable or client-side code.
+   Never put a Supabase `service_role` or secret API key into a `NEXT_PUBLIC_` variable or client-side code. This workspace-scoped Gmail integration does not require a service-role key.
 
 3. In Supabase Auth → URL Configuration, set Site URL to your stable hosted app URL and add that URL plus `http://localhost:3000/**` to Redirect URLs. The hosted URL must exactly match `NEXT_PUBLIC_SITE_URL`; this ensures email confirmation works when the email is opened on a phone rather than the local development machine. Keep email confirmation enabled if that matches your intended login flow.
 4. Install and run:
@@ -68,7 +68,7 @@ Each app user connects their own Gmail account from **Settings → Connect Gmail
 - When drafting for a lead with an email address, the app searches for recent messages to/from that address. It passes a short, lead-specific email history to the model to help it write a real follow-up or reply without inventing previous contact.
 - Emails are only sent from an approved draft after a workspace owner/admin confirms the recipient and clicks **Send via Gmail**.
 - Fictional demo email addresses ending in `.example`, `.test`, or `.invalid` are blocked.
-- Gmail refresh tokens are encrypted at rest with AES-256-GCM in a table inaccessible to regular app users. The Supabase service-role key and encryption key are server-only secrets and must never be prefixed with `NEXT_PUBLIC_` or committed to GitHub.
+- Gmail access and refresh tokens are encrypted at rest with AES-256-GCM in `email_connections`, which is guarded by workspace Row Level Security. The encryption key is server-only and must never be prefixed with `NEXT_PUBLIC_` or committed to GitHub.
 - Users can disconnect Gmail, which removes the app's stored token and asks Google to revoke it.
 
 ### One-time Gmail setup for the app owner
@@ -78,7 +78,7 @@ The app's Gmail connection is implemented, but the production OAuth credentials 
 1. In Google Cloud Console, create/select a Google Cloud project and enable the **Gmail API**.
 2. Configure the OAuth consent screen. For private testing, add the intended Google accounts as test users. Public use with Gmail read/send scopes may require Google OAuth verification; do not assume an unverified app is ready for all users.
 3. Create an OAuth client ID of type **Web application**. Add this exact callback as an authorized redirect URI: `https://YOUR_DEPLOYED_HOST/api/gmail/callback`. It must match `GOOGLE_REDIRECT_URI` exactly.
-4. In Vercel → `small-business-agent` → Settings → Environment Variables, add these encrypted/server-only values for Preview and Production: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `SUPABASE_SERVICE_ROLE_KEY`, and `GMAIL_TOKEN_ENCRYPTION_KEY`. Create an encryption key with `openssl rand -base64 32`. Copy the Supabase service-role/secret key only into Vercel's encrypted variable field; never send it in chat.
+4. In Vercel → `small-business-agent` → Settings → Environment Variables, add these encrypted/server-only values for Preview and Production: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GMAIL_TOKEN_ENCRYPTION_KEY`. Create the encryption key with `openssl rand -base64 32`. No Supabase service-role key is needed for this workspace-scoped integration.
 5. Redeploy, sign in, open Settings, and connect Gmail. Google will show a consent screen. Test with your own mailbox and a test lead before allowing use by other people.
 
 The Gmail connection currently reads recent messages related to a specific lead; it does not scan or ingest the entire mailbox. Email content is sent to the configured AI model only when the user requests AI drafting for that lead. Sending is always a separate, explicit action.
@@ -87,16 +87,9 @@ The Gmail connection currently reads recent messages related to a specific lead;
 
 Apollo is separate from direct Gmail sending. The existing `Mazion | AI Automation | B2B Services` sequence is inactive and its templates need review. Do not set `APOLLO_SEQUENCE_READY=true` until the sequence subject lines and message templates have been approved in Apollo. The app will not activate it automatically or enroll contacts by itself.
 
-## AI draft setup (optional, cost-sensitive)
+## AI draft setup (cost-sensitive)
 
-Do not fill these values until the provider/model has been chosen and its pricing reviewed. The endpoint returns a setup message without calling a model when either value is missing.
-
-```dotenv
-AI_GATEWAY_API_KEY=
-AI_DRAFT_MODEL=
-```
-
-These variables are server-only: do not prefix them with `NEXT_PUBLIC_`. Use a supported current model identifier and follow the provider's terms. A generated draft is still a draft; a person must approve it. No sending service is implemented in this build.
+The hosted Vercel deployment is configured to use the `anthropic/claude-haiku-4.5` model through Vercel AI Gateway with Vercel's server-side OIDC authentication. Local development can use `AI_GATEWAY_API_KEY` in a private `.env.local`. Keep the model ID server-side and review usage limits before enabling additional paid usage. The app caps output to 500 tokens per draft. AI-generated emails remain drafts; a user must approve a draft before sending.
 
 ## Database
 
