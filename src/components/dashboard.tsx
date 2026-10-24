@@ -4,7 +4,17 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } fro
 import { Activity, ArrowUpRight, Building2, Check, Clock3, FileText, LoaderCircle, LogOut, Mail, Plus, Search, ShieldCheck, Sparkles, Upload, Users, Workflow, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Workspace = { id: string; name: string; slug: string; role: string };
+type BusinessProfile = {
+  industry?: string;
+  website?: string;
+  offering?: string;
+  ideal_customer?: string;
+  differentiator?: string;
+  voice?: string;
+  call_to_action?: string;
+};
+type Workspace = { id: string; name: string; slug: string; role: string; business_profile?: BusinessProfile };
+type GmailStatus = { configured: boolean; connected: boolean; email: string | null; scopes?: string[]; connectedAt?: string | null; reason?: string };
 type Lead = { id: string; workspace_id: string; company_name: string; contact_name: string | null; email: string | null; phone: string | null; website: string | null; linkedin_url: string | null; source_type: string; status: string; notes: string | null; created_at: string };
 type Draft = { id: string; workspace_id: string; lead_id: string; subject: string; body: string; status: string; generation_method: string; created_at: string; rejection_reason: string | null; send_provider?: string | null; provider_message_id?: string | null; sent_at?: string | null; leads?: { company_name?: string; contact_name?: string | null; email?: string | null } | null };
 type IntegrationStatus = {
@@ -72,6 +82,13 @@ export default function Dashboard() {
   const [sendBusyDraftId, setSendBusyDraftId] = useState<string | null>(null);
   const [sequenceBusyLeadId, setSequenceBusyLeadId] = useState<string | null>(null);
   const [sequenceActivationBusy, setSequenceActivationBusy] = useState(false);
+  const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [businessProfileForm, setBusinessProfileForm] = useState<BusinessProfile>({
+    industry: "", website: "", offering: "", ideal_customer: "", differentiator: "",
+    voice: "friendly and conversational", call_to_action: "book a short discovery call",
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
 
   const workspace = workspaces.find(w => w.id === workspaceId) || null;
   const canApprove = workspace?.role === "owner" || workspace?.role === "admin";
@@ -91,6 +108,20 @@ export default function Dashboard() {
       setIntegrations(null);
     } finally {
       setIntegrationsLoading(false);
+    }
+  }, []);
+
+  const loadGmailStatus = useCallback(async () => {
+    setGmailLoading(true);
+    try {
+      const response = await fetch("/api/gmail/status", { cache: "no-store" });
+      const result = await response.json();
+      if (response.ok) setGmailStatus(result as GmailStatus);
+      else setGmailStatus(null);
+    } catch {
+      setGmailStatus(null);
+    } finally {
+      setGmailLoading(false);
     }
   }, []);
 
@@ -114,17 +145,62 @@ export default function Dashboard() {
     if (memberError) { notify("Couldn't load your workspaces: " + memberError.message, true); setLoading(false); return; }
     const ids = (memberships || []).map((m: { workspace_id: string }) => m.workspace_id);
     if (ids.length) {
-      const { data: rows, error: workspaceError } = await supabase.from("workspaces").select("id,name,slug").in("id", ids).order("created_at", { ascending: true });
+      const { data: rows, error: workspaceError } = await supabase.from("workspaces").select("id,name,slug,business_profile").in("id", ids).order("created_at", { ascending: true });
       if (workspaceError) notify("Couldn't load workspace details: " + workspaceError.message, true);
       const roles = new Map((memberships || []).map((m: { workspace_id: string; role: string }) => [m.workspace_id, m.role]));
-      const list = (rows || []).map((r: { id: string; name: string; slug: string }) => ({ ...r, role: String(roles.get(r.id) || "member") }));
+      const list = (rows || []).map((r: { id: string; name: string; slug: string; business_profile?: BusinessProfile }) => ({ ...r, role: String(roles.get(r.id) || "member"), business_profile: r.business_profile || {} }));
       setWorkspaces(list); if (list.length) setWorkspaceId(current => current || list[0].id);
+    } else {
+      const metadata = (user.user_metadata || {}) as Record<string, unknown>;
+      const profile = metadata.business_profile && typeof metadata.business_profile === "object"
+        ? metadata.business_profile as BusinessProfile
+        : null;
+      const businessName = typeof metadata.business_name === "string" ? metadata.business_name.trim() : "";
+      if (businessName && profile) {
+        const slug = businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + crypto.randomUUID().slice(0, 5);
+        const { data: createdData, error: createError } = await supabase.rpc("create_workspace", {
+          p_name: businessName,
+          p_slug: slug,
+          p_business_profile: profile,
+        });
+        const createdRow = Array.isArray(createdData) ? createdData[0] : createdData;
+        if (!createError && createdRow?.id) {
+          const createdWorkspace = { ...createdRow, role: "owner", business_profile: profile } as Workspace;
+          setWorkspaces([createdWorkspace]);
+          setWorkspaceId(createdWorkspace.id);
+          setBusinessProfileForm(profile);
+          setNewWorkspaceName(businessName);
+          notify("Your business workspace is ready.");
+        } else {
+          setBusinessProfileForm(profile);
+          setNewWorkspaceName(businessName);
+          notify("Your account is ready, but automatic workspace setup needs one more try. Use Create workspace below.", true);
+        }
+      } else {
+        setNewWorkspaceName(businessName);
+        setBusinessProfileForm(profile || {});
+      }
     }
     setLoading(false);
   }, [supabase]);
 
   useEffect(() => { void initialize(); }, [initialize]);
   useEffect(() => { if (workspaceId) void loadWorkspace(workspaceId); }, [workspaceId, loadWorkspace]);
+  useEffect(() => { void loadGmailStatus(); }, [loadGmailStatus]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmailState = params.get("gmail");
+    if (gmailState === "connected") notify("Gmail connected successfully. AI drafts can now use relevant email history.");
+    else if (gmailState === "setup-required") notify("Gmail connection is not configured by the app owner yet. See Settings for the required setup.", true);
+    else if (gmailState === "consent-denied") notify("Gmail connection was cancelled. No email account was connected.", true);
+    else if (gmailState && gmailState !== "connected") notify("Gmail connection did not finish (" + gmailState.replaceAll("-", " ") + "). Check the Google OAuth setup.", true);
+    if (gmailState) {
+      params.delete("gmail");
+      const query = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+      void loadGmailStatus();
+    }
+  }, [loadGmailStatus]);
   useEffect(() => { void loadIntegrationStatus(); }, [loadIntegrationStatus]);
 
   async function recordActivity(type: string, details: Record<string, unknown>, leadId: string | null = null) {
@@ -147,11 +223,12 @@ export default function Dashboard() {
       const { data, error: insertError } = await supabase.rpc("create_workspace", {
         p_name: newWorkspaceName.trim(),
         p_slug: slug,
+        p_business_profile: businessProfileForm,
       });
       if (insertError) throw insertError;
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.id) throw new Error("The database did not return the new workspace. Refresh and try again.");
-      const created = { ...row, role: "owner" } as Workspace;
+      const created = { ...row, role: "owner", business_profile: businessProfileForm } as Workspace;
       setWorkspaces(current => [...current.filter(w => w.id !== created.id), created]);
       setWorkspaceId(created.id);
       notify("Workspace created.");
