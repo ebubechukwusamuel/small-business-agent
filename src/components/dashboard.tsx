@@ -201,6 +201,21 @@ export default function Dashboard() {
       void loadGmailStatus();
     }
   }, [loadGmailStatus]);
+  useEffect(() => {
+    const selectedWorkspace = workspaces.find(item => item.id === workspaceId);
+    if (selectedWorkspace) {
+      setBusinessProfileForm({
+        industry: "",
+        website: "",
+        offering: "",
+        ideal_customer: "",
+        differentiator: "",
+        voice: "friendly and conversational",
+        call_to_action: "book a short discovery call",
+        ...(selectedWorkspace.business_profile || {}),
+      });
+    }
+  }, [workspaceId, workspaces]);
   useEffect(() => { void loadIntegrationStatus(); }, [loadIntegrationStatus]);
 
   async function recordActivity(type: string, details: Record<string, unknown>, leadId: string | null = null) {
@@ -309,7 +324,10 @@ export default function Dashboard() {
       const response = await fetch("/api/ai-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: selected.id, workspaceId }) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || "AI drafting failed.");
       setDraft({ subject: result.subject, body: result.body, method: "ai" }); setAiModel(typeof result.model === "string" ? result.model : "");
-      notify("AI draft created for review. It has not been sent.");
+      const count = Number(result.contextUsed?.priorEmails || 0);
+      const usedProfile = Boolean(result.contextUsed?.businessProfile);
+      const historyNote = count > 0 ? " It used " + count + " recent email(s) from your connected Gmail." : gmailStatus?.connected ? " No matching prior emails were found for this lead." : " Connect Gmail if you want AI to use your previous emails.";
+      notify("AI draft created for review" + (usedProfile ? " using your business profile." : ".") + historyNote + " It has not been sent.");
     } catch (e) { notify(e instanceof Error ? e.message : "AI drafting is not available.", true); }
     finally { setBusy(false); }
   }
@@ -349,35 +367,34 @@ export default function Dashboard() {
       notify("This is fictional demo data. Sending is blocked for demo addresses.", true);
       return;
     }
-    if (!integrations?.apollo.liveSendReady) {
+    if (!gmailStatus?.connected) {
       setTab("settings");
-      await loadIntegrationStatus();
-      notify("Apollo is not ready to send yet. Check the connection status in Settings.", true);
+      await loadGmailStatus();
+      notify("Connect your Gmail account in Settings before sending.", true);
       return;
     }
     const confirmed = window.confirm(
-      "Send this approved email through Apollo?\n\nTo: " + recipient + "\nSubject: " + d.subject +
-      "\n\nThis sends a real email. Continue only if you have permission to contact this person."
+      "Send this approved email using " + gmailStatus.email + "?\n\nTo: " + recipient + "\nSubject: " + d.subject +
+      "\n\nThis sends a real email from your Gmail account. Continue only if you have permission to contact this person."
     );
     if (!confirmed) return;
 
     setSendBusyDraftId(d.id);
     try {
-      const response = await fetch("/api/send-email", {
+      const response = await fetch("/api/gmail/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ draftId: d.id, workspaceId }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Email sending failed.");
-      if (result.state === "delivered") {
-        notify("Apollo confirmed delivery of the email.");
-      } else {
-        notify("Apollo accepted the email for processing. Refresh the status to confirm delivery.");
-      }
+      if (!response.ok) throw new Error(result.error || "Gmail sending failed.");
+      notify(result.message || "Gmail accepted the email.");
       await loadWorkspace(workspaceId);
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Email sending failed.", true);
+      notify(e instanceof Error ? e.message : "Gmail sending failed.", true);
+      if (gmailStatus?.connected) {
+        notify((e instanceof Error ? e.message : "Gmail sending failed.") + " If Gmail may have accepted the message, check Sent before retrying.", true);
+      }
     } finally {
       setSendBusyDraftId(null);
     }
@@ -464,6 +481,56 @@ export default function Dashboard() {
       notify(e instanceof Error ? e.message : "Couldn't refresh send status.", true);
     } finally {
       setSendBusyDraftId(null);
+    }
+  }
+
+  async function saveBusinessProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workspaceId || !canApprove) {
+      notify("Only a workspace owner or admin can update business context.", true);
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const profile = {
+        industry: (businessProfileForm.industry || "").trim(),
+        website: (businessProfileForm.website || "").trim(),
+        offering: (businessProfileForm.offering || "").trim(),
+        ideal_customer: (businessProfileForm.ideal_customer || "").trim(),
+        differentiator: (businessProfileForm.differentiator || "").trim(),
+        voice: businessProfileForm.voice || "friendly and conversational",
+        call_to_action: businessProfileForm.call_to_action || "book a short discovery call",
+      };
+      const { error: updateError } = await supabase
+        .from("workspaces")
+        .update({ business_profile: profile })
+        .eq("id", workspaceId);
+      if (updateError) throw updateError;
+      setWorkspaces(current => current.map(item => item.id === workspaceId ? { ...item, business_profile: profile } : item));
+      await recordActivity("business_profile_updated", { industry: profile.industry, website: profile.website });
+      notify("Business context saved. New AI drafts will use it.");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't save business context.", true);
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function disconnectGmail() {
+    if (!gmailStatus?.connected) return;
+    const confirmed = window.confirm("Disconnect " + gmailStatus.email + "? New drafts will no longer read this mailbox, and this app will no longer send through it.");
+    if (!confirmed) return;
+    setGmailLoading(true);
+    try {
+      const response = await fetch("/api/gmail/disconnect", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Couldn't disconnect Gmail.");
+      notify("Gmail disconnected.");
+      await loadGmailStatus();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't disconnect Gmail.", true);
+    } finally {
+      setGmailLoading(false);
     }
   }
 
