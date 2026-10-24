@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await getEmailAccount();
+    const sender = await getEmailAccount();
 
     const parts = (leadRow.contact_name || "").trim().split(/\s+/).filter(Boolean);
     const contactPayload: Record<string, unknown> = {
@@ -172,6 +172,7 @@ export async function POST(request: NextRequest) {
         method: "POST",
         body: JSON.stringify({
           contact_id: contact.id,
+          email_account_id: sender.id,
           subject: draftRow.subject,
           body_html: safeHtml(draftRow.body),
         }),
@@ -192,13 +193,26 @@ export async function POST(request: NextRequest) {
       }, { status: 502 });
     }
 
-    const sendResult = await apolloRequest<{ emailer_message?: { id?: string; status?: string }; status?: string }>(
-      "/emailer_messages/" + encodeURIComponent(message.id) + "/send_now",
-      { method: "POST", body: JSON.stringify({ surface: "emails" }) },
-    );
+    let sendResult: { emailer_message?: { id?: string; status?: string }; status?: string };
+    try {
+      sendResult = await apolloRequest<{ emailer_message?: { id?: string; status?: string }; status?: string }>(
+        "/emailer_messages/" + encodeURIComponent(message.id) + "/send_now",
+        { method: "POST", body: JSON.stringify({ surface: "emails" }) },
+      );
+    } catch (sendError) {
+      await supabase.rpc("clear_apollo_email_queue", {
+        p_draft_id: draftRow.id,
+        p_provider_message_id: message.id,
+      });
+      throw sendError;
+    }
     const sendMessage = sendResult.emailer_message || sendResult as { id?: string; status?: string };
 
     if (sendMessage.status === "failed") {
+      await supabase.rpc("clear_apollo_email_queue", {
+        p_draft_id: draftRow.id,
+        p_provider_message_id: message.id,
+      });
       return NextResponse.json({
         error: "Apollo refused to send the message. Check the mailbox and contact permissions in Apollo before retrying.",
         state: "failed",
@@ -207,10 +221,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Apollo sends asynchronously. The app stores the provider id first, then status can be refreshed.
-    const statusResult = await apolloRequest<{ status?: string; message?: string }>(
+    const statusResult = await apolloRequest<{ status?: string; message?: string; failure_reason?: string; not_sent_reason?: string }>(
       "/emailer_messages/email_send_status",
       { method: "POST", body: JSON.stringify({ id: message.id }) },
     );
+
+    if (statusResult.status === "failed") {
+      await supabase.rpc("clear_apollo_email_queue", {
+        p_draft_id: draftRow.id,
+        p_provider_message_id: message.id,
+      });
+      return NextResponse.json({
+        error: statusResult.failure_reason || statusResult.not_sent_reason || statusResult.message || "Apollo failed to send the email.",
+        state: "failed",
+        providerMessageId: message.id,
+      }, { status: 502 });
+    }
 
     if (statusResult.status === "completed") {
       const completed = await supabase.rpc("record_apollo_email_sent", {
