@@ -64,6 +64,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (status.status === "failed") {
+      await supabase.rpc("clear_apollo_email_queue", {
+        p_draft_id: draft.id,
+        p_provider_message_id: draft.provider_message_id,
+      });
       return NextResponse.json({
         ok: false,
         state: "failed",
