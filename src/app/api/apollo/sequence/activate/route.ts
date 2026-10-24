@@ -51,18 +51,19 @@ export async function POST(request: NextRequest) {
     if (sequence.active) return NextResponse.json({ ok: true, active: true, name: sequence.name, message: "The outreach sequence is already active." });
     if (!sequence.num_steps) return NextResponse.json({ error: "The Apollo sequence has no steps and cannot be activated." }, { status: 409 });
 
-    const activation = await apolloRequest<{ emailer_campaign?: { active?: boolean; name?: string }; active?: boolean; name?: string }>(
+    await apolloRequest(
       "/emailer_campaigns/" + encodeURIComponent(sequenceId) + "/approve",
       { method: "POST", body: JSON.stringify({}) },
     );
-    const active = activation.emailer_campaign?.active ?? activation.active ?? true;
-    const name = activation.emailer_campaign?.name ?? activation.name ?? sequence.name;
+    const refreshed = await getApolloSequence(sequenceId);
     return NextResponse.json({
       ok: true,
-      active: Boolean(active),
-      name,
+      active: Boolean(refreshed?.active),
+      name: refreshed?.name || sequence.name,
       sender: sender.email,
-      message: "Apollo accepted the activation request. Refresh Settings to verify the sequence state.",
+      message: refreshed?.active
+        ? "Apollo confirms the outreach sequence is active."
+        : "Apollo accepted activation, but the sequence is not yet reporting as active. Refresh Settings and check Apollo.",
     });
   } catch (err) {
     const status = err instanceof ApolloApiError ? err.status : 502;
