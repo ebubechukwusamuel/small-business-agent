@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [recoveryMode, setRecoveryMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,7 +47,7 @@ export default function LoginPage() {
         options: { emailRedirectTo: redirectBase + "/auth/callback" },
       });
       if (resendError) throw resendError;
-      setMessage("A new verification email has been requested. Use the newest email and ignore the old localhost link.");
+      setMessage("A new verification email has been requested. Check your inbox and spam folder for the newest message.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't request another verification email.");
     } finally {
@@ -59,7 +60,7 @@ export default function LoginPage() {
     setError("");
     setMessage("");
     if (!configured) {
-      setError("Connect the new Supabase project first. Copy its URL and publishable key into .env.local.");
+      setError("Supabase is not configured yet. Add the project URL and publishable key to the deployment environment variables.");
       return;
     }
     if (mode === "signup") {
@@ -71,6 +72,15 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const supabase = createClient();
+      if (recoveryMode) {
+        const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin;
+        const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: redirectBase + "/auth/callback?next=%2Freset-password",
+        });
+        if (recoveryError) throw recoveryError;
+        setMessage("If an account exists for this email, a password reset link will arrive shortly.");
+        return;
+      }
       if (mode === "signin") {
         const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (authError) throw authError;
@@ -133,12 +143,13 @@ export default function LoginPage() {
 
       <section className="auth-panel-wrap">
         <div className="auth-panel">
+          <a className="brand-lockup auth-mobile-brand" href="/" aria-label="Small Business Agent home"><span className="brand-mark"><Workflow size={18} strokeWidth={2.4} /></span><span>small business <strong>agent</strong></span></a>
           <div className="auth-panel-heading">
             <div className="eyebrow">YOUR WORKSPACE</div>
-            <h2>{mode === "signin" ? "Welcome back" : "Create your account"}</h2>
-            <p>{mode === "signin" ? "Sign in to pick up where your team left off." : "Start organising your leads in one place."}</p>
+            <h2>{recoveryMode ? "Reset your password" : mode === "signin" ? "Welcome back" : "Create your account"}</h2>
+            <p>{recoveryMode ? "Enter your account email and we’ll send a secure reset link if it’s registered." : mode === "signin" ? "Sign in to pick up where your team left off." : "Start organising your leads in one place."}</p>
           </div>
-          {!configured && <div className="notice notice-warning"><strong>Setup needed</strong><span>Supabase connection values are not configured yet. The app will become available once .env.local is filled in.</span></div>}
+          {!configured && <div className="notice notice-warning"><strong>Setup needed</strong><span>Supabase connection values are not configured yet. Add the Supabase project URL and publishable key to the deployment environment variables.</span></div>}
           {error && <div className="notice notice-error" role="alert">{error}</div>}
           {message && <div className="notice notice-success" role="status">{message}</div>}
           <form className="auth-form" onSubmit={onSubmit}>
@@ -181,17 +192,19 @@ export default function LoginPage() {
             </section>}
             {mode === "signup" && <div className="auth-section-heading">Create your login</div>}
             <label className="field-label" htmlFor="email">Work email</label>
-            <input id="email" className="text-input" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} required />
-            <div className="field-label-row"><label className="field-label" htmlFor="password">Password</label>{mode === "signin" && <span className="field-hint">Use your account password</span>}</div>
-            <input id="password" className="text-input" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} placeholder="At least 8 characters" value={password} onChange={e => setPassword(e.target.value)} required />
+            <input id="email" name="email" className="text-input" type="email" autoComplete="email" spellCheck={false} placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} required />
+            {!recoveryMode && <>
+              <div className="field-label-row"><label className="field-label" htmlFor="password">Password</label>{mode === "signin" && <button type="button" className="link-button" onClick={() => { setRecoveryMode(true); setError(""); setMessage(""); }} disabled={loading}>Forgot password?</button>}</div>
+              <input id="password" name="password" className="text-input" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} placeholder="At least 8 characters" value={password} onChange={e => setPassword(e.target.value)} required />
+            </>}
             <button className="btn btn-primary btn-full btn-large" type="submit" disabled={loading}>
-              {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+              {loading ? "Please wait…" : recoveryMode ? "Send reset link" : mode === "signin" ? "Sign in" : "Create account"}
               {!loading && <ArrowUpRight size={17} />}
             </button>
           </form>
-          <div className="auth-switch">{mode === "signin" ? "New to Small Business Agent?" : "Already have an account?"} <button type="button" className="link-button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setMessage(""); }}>{mode === "signin" ? "Create an account" : "Sign in"}</button></div>
-          <div className="auth-switch"><button type="button" className="link-button" disabled={loading || !email.trim()} onClick={resendConfirmation}>Resend verification email</button></div>
-          <div className="auth-security"><ShieldCheck size={16} /><span>Your leads are private to your workspace. Follow-up sending is not connected.</span></div>
+          <div className="auth-switch">{recoveryMode ? "Remembered your password?" : mode === "signin" ? "New to Small Business Agent?" : "Already have an account?"} <button type="button" className="link-button" onClick={() => { if (recoveryMode) { setRecoveryMode(false); setMode("signin"); } else { setMode(mode === "signin" ? "signup" : "signin"); } setError(""); setMessage(""); }}>{recoveryMode ? "Back to sign in" : mode === "signin" ? "Create an account" : "Sign in"}</button></div>
+          {!recoveryMode && <div className="auth-switch"><button type="button" className="link-button" disabled={loading || !email.trim()} onClick={resendConfirmation}>Resend verification email</button></div>}
+          <div className="auth-security"><ShieldCheck size={16} /><span>Your leads are private to your workspace. Follow-up messages stay drafts until you approve them.</span></div>
         </div>
         <p className="auth-panel-footer">A practical workspace for the work that happens after a new lead comes in.</p>
       </section>
