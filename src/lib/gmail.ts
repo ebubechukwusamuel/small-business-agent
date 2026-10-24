@@ -16,7 +16,6 @@ export type GmailConnection = {
   connected_by: string;
   last_history_sync_at: string | null;
   last_sync_error: string | null;
-  created_at: string;
 };
 
 export type PriorEmail = {
@@ -84,7 +83,7 @@ export async function getWorkspaceGmailConnection(
 ): Promise<GmailConnection | null> {
   const { data, error } = await supabase
     .from("email_connections")
-    .select("id,workspace_id,created_at,provider,provider_email,google_subject,encrypted_access_token,encrypted_refresh_token,scopes,expires_at,is_default,connected_by,last_history_sync_at,last_sync_error,created_at")
+    .select("id,workspace_id,created_at,provider,provider_email,google_subject,encrypted_access_token,encrypted_refresh_token,scopes,expires_at,is_default,connected_by,last_history_sync_at,last_sync_error")
     .eq("workspace_id", workspaceId)
     .eq("provider", "gmail")
     .order("is_default", { ascending: false })
