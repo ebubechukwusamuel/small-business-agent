@@ -8,8 +8,20 @@ type Workspace = { id: string; name: string; slug: string; role: string };
 type Lead = { id: string; workspace_id: string; company_name: string; contact_name: string | null; email: string | null; phone: string | null; website: string | null; linkedin_url: string | null; source_type: string; status: string; notes: string | null; created_at: string };
 type Draft = { id: string; workspace_id: string; lead_id: string; subject: string; body: string; status: string; generation_method: string; created_at: string; rejection_reason: string | null; send_provider?: string | null; provider_message_id?: string | null; sent_at?: string | null; leads?: { company_name?: string; contact_name?: string | null; email?: string | null } | null };
 type IntegrationStatus = {
-  ai: { keyConfigured: boolean; modelConfigured: boolean; model: string | null; ready: boolean };
-  apollo: { apiKeyConfigured: boolean; mailboxCount: number; defaultMailbox: { email: string; name?: string | null } | null; sequenceConfigured: boolean; liveSendReady: boolean; sequenceReadyForEnrollment: boolean; connectionError: string | null; sequenceActive?: boolean | null; sequenceName?: string | null };
+  ai: { authConfigured: boolean; modelConfigured: boolean; model: string | null; ready: boolean };
+  apollo: {
+    apiKeyConfigured: boolean;
+    mailboxCount: number;
+    defaultMailbox: { id: string; email: string; name?: string | null } | null;
+    sequenceConfigured: boolean;
+    sequenceReadyForEnrollment: boolean;
+    canActivateSequence: boolean;
+    sequenceTemplatesApproved: boolean;
+    sequenceActiveContacts: number;
+    connectionError: string | null;
+    sequenceActive?: boolean | null;
+    sequenceName?: string | null;
+  };
 };
 type ActivityRow = { id: string; event_type: string; details: Record<string, unknown>; created_at: string; lead_id: string | null };
 type Modal = "lead" | "import" | "research" | "draft" | null;
@@ -57,6 +69,8 @@ export default function Dashboard() {
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null);
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
   const [sendBusyDraftId, setSendBusyDraftId] = useState<string | null>(null);
+  const [sequenceBusyLeadId, setSequenceBusyLeadId] = useState<string | null>(null);
+  const [sequenceActivationBusy, setSequenceActivationBusy] = useState(false);
 
   const workspace = workspaces.find(w => w.id === workspaceId) || null;
   const canApprove = workspace?.role === "owner" || workspace?.role === "admin";
@@ -291,6 +305,71 @@ export default function Dashboard() {
     }
   }
 
+  async function activateOutreachSequence() {
+    const sequenceName = integrations?.apollo.sequenceName || "Mazion | AI Automation | B2B Services";
+    const activeContacts = integrations?.apollo.sequenceActiveContacts ?? 0;
+    const warning = activeContacts > 0
+      ? "\n\nThere are " + activeContacts + " contact(s) already in the sequence. Activation can start scheduled sends to those contacts."
+      : "\n\nNo active contacts are currently reported, but activation will allow future enrollments to send.";
+    const confirmed = window.confirm(
+      "Activate the Apollo outreach sequence “" + sequenceName + "”?\n\nThis enables real scheduled emails for enrolled contacts. We will not enroll anyone automatically." + warning
+    );
+    if (!confirmed) return;
+    setSequenceActivationBusy(true);
+    try {
+      const response = await fetch("/api/apollo/sequence/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, confirmed: true }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Sequence activation failed.");
+      notify(result.active ? "Apollo outreach sequence is active." : "Apollo accepted activation. Refresh to verify its state.");
+      await loadIntegrationStatus();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Sequence activation failed.", true);
+      await loadIntegrationStatus();
+    } finally {
+      setSequenceActivationBusy(false);
+    }
+  }
+
+  async function enrollLeadInSequence(leadRow: Lead) {
+    const recipient = leadRow.email?.trim();
+    if (!recipient) {
+      notify("This lead has no email address.", true);
+      return;
+    }
+    if (/\.(example|test|invalid)$/i.test(recipient.split("@")[1] || "") || /@example\.(com|org|net)$/i.test(recipient)) {
+      notify("This is fictional demo data. Enrollment and sending are blocked for demo addresses.", true);
+      return;
+    }
+    const sender = integrations?.apollo.defaultMailbox?.email || "Apollo default sender";
+    const sequenceName = integrations?.apollo.sequenceName || "Mazion | AI Automation | B2B Services";
+    const confirmed = window.confirm(
+      "Enroll this lead in the active Apollo outreach sequence?\n\nFrom: " + sender +
+      "\nTo: " + recipient + "\nSequence: " + sequenceName +
+      "\n\nApollo will start its scheduled first step and later steps. It may send real emails. Only continue if this person is appropriate to contact."
+    );
+    if (!confirmed) return;
+    setSequenceBusyLeadId(leadRow.id);
+    try {
+      const response = await fetch("/api/apollo/sequence/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: leadRow.id, workspaceId, confirmed: true }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Sequence enrollment failed.");
+      notify("Lead enrolled in the Apollo sequence. Apollo will manage its schedule and reply rules.");
+      await loadWorkspace(workspaceId);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Sequence enrollment failed.", true);
+    } finally {
+      setSequenceBusyLeadId(null);
+    }
+  }
+
   async function refreshApprovedDraftStatus(d: Draft) {
     setSendBusyDraftId(d.id);
     try {
@@ -327,7 +406,7 @@ export default function Dashboard() {
       <section className="content-area">
         {(message || error) && <div className={"notice " + (error ? "notice-error" : "notice-success")} role="status">{message || error}<button aria-label="Dismiss" onClick={() => { setMessage(""); setError(""); }}><X size={16} /></button></div>}
         {tab === "overview" && <><div className="welcome-row"><div><p>Keep every lead moving without losing the human decision.</p></div><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="metric-grid"><div className="metric-card"><Users size={18} /><span>Total leads</span><strong>{leads.length}</strong></div><div className="metric-card"><Clock3 size={18} /><span>Needs approval</span><strong>{pendingDrafts.length}</strong></div><div className="metric-card"><Check size={18} /><span>Approved drafts</span><strong>{drafts.filter(d => d.status === "approved").length}</strong></div><div className="metric-card"><Activity size={18} /><span>Recent activity</span><strong>{activity.length}</strong></div></div><div className="panel"><div className="panel-heading"><div><h2>Recent leads</h2><p>Your latest prospects and next actions.</p></div><button className="text-action" onClick={() => setTab("leads")}>View leads <ArrowUpRight size={15} /></button></div>{leads.length ? leads.slice(0, 5).map(l => <div className="list-row" key={l.id}><span className="avatar">{initials(l.company_name)}</span><span className="row-copy"><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></span><span className={badge(l.status)}>{label(l.status)}</span><button className="btn btn-secondary btn-small" onClick={() => openDraft(l)}>Prepare follow-up</button></div>) : <div className="empty-state"><Users size={22} /><strong>Your lead list starts here</strong><p>Add a prospect manually or import a CSV.</p></div>}</div><div className="panel"><div className="panel-heading"><div><h2>Latest activity</h2><p>Changes recorded in this workspace.</p></div><button className="text-action" onClick={() => setTab("activity")}>View activity</button></div>{activity.slice(0, 4).map(a => <div className="activity-row" key={a.id}><span>{label(a.event_type)}</span><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity recorded yet.</p>}</div></>}
-        {tab === "leads" && <><div className="toolbar"><label className="search"><Search size={16} /><input placeholder="Search leads" value={search} onChange={e => setSearch(e.target.value)} /></label><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="panel"><div className="table-wrap"><table><thead><tr><th>Company / contact</th><th>Status</th><th>Source</th><th>Added</th><th>Actions</th></tr></thead><tbody>{filteredLeads.map(l => <tr key={l.id}><td><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></td><td><span className={badge(l.status)}>{label(l.status)}</span></td><td>{l.source_type === "csv" ? "CSV" : "Manual"}</td><td>{dateLabel(l.created_at)}</td><td><div className="row-actions"><button className="text-action" onClick={() => openResearch(l)}><FileText size={14} /> Notes</button><button className="text-action" onClick={() => openDraft(l)}><Mail size={14} /> Draft</button></div></td></tr>)}</tbody></table></div>{!filteredLeads.length && <div className="empty-state"><Users size={22} /><strong>No matching leads</strong><p>Add a lead or adjust your search.</p></div>}</div></>}
+        {tab === "leads" && <><div className="toolbar"><label className="search"><Search size={16} /><input placeholder="Search leads" value={search} onChange={e => setSearch(e.target.value)} /></label><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="panel"><div className="table-wrap"><table><thead><tr><th>Company / contact</th><th>Status</th><th>Source</th><th>Added</th><th>Actions</th></tr></thead><tbody>{filteredLeads.map(l => <tr key={l.id}><td><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></td><td><span className={badge(l.status)}>{label(l.status)}</span></td><td>{l.source_type === "csv" ? "CSV" : "Manual"}</td><td>{dateLabel(l.created_at)}</td><td><div className="row-actions"><button className="text-action" onClick={() => openResearch(l)}><FileText size={14} /> Notes</button><button className="text-action" onClick={() => openDraft(l)}><Mail size={14} /> Draft</button>{l.status === "approved" && canApprove && integrations?.apollo.sequenceReadyForEnrollment && <button className="text-action" disabled={sequenceBusyLeadId === l.id} onClick={() => void enrollLeadInSequence(l)}><Workflow size={14} /> {sequenceBusyLeadId === l.id ? "Enrolling…" : "Enroll"}</button>}</div></td></tr>)}</tbody></table></div>{!filteredLeads.length && <div className="empty-state"><Users size={22} /><strong>No matching leads</strong><p>Add a lead or adjust your search.</p></div>}</div></>}
         {tab === "followups" && <div className="draft-list">{drafts.map(d => {
           const isDemoRecipient = Boolean(d.leads?.email && (/\.(example|test|invalid)$/i.test(d.leads.email.split("@")[1] || "") || /@example\.(com|org|net)$/i.test(d.leads.email)));
           const isQueued = d.status === "approved" && d.send_provider === "apollo" && Boolean(d.provider_message_id);
@@ -356,8 +435,8 @@ export default function Dashboard() {
             <div className="panel-heading"><div><h2>AI draft generation</h2><p>Uses a server-side model; the API key is never sent to the browser.</p></div><span className={integrations?.ai.ready ? "status-badge good" : "status-badge waiting"}>{integrations?.ai.ready ? "Connected" : "Setup needed"}</span></div>
             <p><Sparkles size={16} /> Model: {integrations?.ai.model || "Not selected"}</p>
             <p><Check size={16} /> Model setting: {integrations?.ai.modelConfigured ? "configured" : "missing"}</p>
-            <p><ShieldCheck size={16} /> Gateway API key: {integrations?.ai.keyConfigured ? "configured" : "not configured"}</p>
-            {!integrations?.ai.keyConfigured && <p className="muted">Create an API key in Vercel AI Gateway, then add it as AI_GATEWAY_API_KEY in this project's Vercel environment variables. Do not paste the key into chat. AI requests use your included free Gateway allowance first; requests beyond any free allowance may be chargeable.</p>}
+            <p><ShieldCheck size={16} /> Gateway authentication: {integrations?.ai.authConfigured ? "available" : "not available"}</p>
+            {!integrations?.ai.authConfigured && <p className="muted">The hosted app can use Vercel's built-in OIDC authentication. For local development, add AI_GATEWAY_API_KEY to your private .env.local file. The AI Gateway currently includes $5/month of usage; don't purchase paid credits without reviewing the cost first.</p>}
           </div>
           <div className="panel settings-panel">
             <div className="panel-heading"><div><h2>Apollo email sending</h2><p>Approved drafts are sent using your connected Apollo mailbox.</p></div><span className={integrations?.apollo.liveSendReady ? "status-badge good" : "status-badge waiting"}>{integrations?.apollo.liveSendReady ? "Connected" : "Setup needed"}</span></div>
@@ -370,11 +449,15 @@ export default function Dashboard() {
             <button className="btn btn-secondary" disabled={integrationsLoading} onClick={() => void loadIntegrationStatus()}>{integrationsLoading ? "Checking…" : "Refresh connection status"}</button>
           </div>
           <div className="panel settings-panel">
-            <div className="panel-heading"><div><h2>Outreach automation</h2><p>The existing Apollo sequence manages follow-up timing after enrollment.</p></div><span className="status-badge waiting">Not active</span></div>
-            <p><Workflow size={16} /> Sequence: Mazion | AI Automation | B2B Services</p>
-            <p><Check size={16} /> Sequence reference configured: {integrations?.apollo.sequenceConfigured ? "yes" : "no"}</p>
-            <p><Clock3 size={16} /> Current setup needs review: the sequence is inactive, the email templates are awaiting review, and three follow-up subject lines are blank.</p>
-            <p className="muted">We will keep it inactive until the sender mailbox is connected and those templates are approved. After that, it can run the four email steps and use Apollo's schedule and reply-pause rules.</p>
+            <div className="panel-heading"><div><h2>Outreach automation</h2><p>Apollo manages the sending schedule and stops the sequence when it detects a reply.</p></div><span className={integrations?.apollo.sequenceActive ? "status-badge good" : "status-badge waiting"}>{integrations?.apollo.sequenceActive ? "Active" : "Not active"}</span></div>
+            <p><Workflow size={16} /> Sequence: {integrations?.apollo.sequenceName || "Mazion | AI Automation | B2B Services"}</p>
+            <p><Check size={16} /> Sequence reference: {integrations?.apollo.sequenceConfigured ? "configured" : "missing"}</p>
+            <p><Check size={16} /> Email templates approved: {integrations?.apollo.sequenceTemplatesApproved ? "yes" : "not yet"}</p>
+            <p><Users size={16} /> Currently active contacts: {integrations?.apollo.sequenceActiveContacts ?? "not checked"}</p>
+            {!integrations?.apollo.sequenceTemplatesApproved && <p className="muted">Before activation, review the four Apollo messages. Step 1 already has a subject; steps 2–4 need subject lines, and all four touches are currently marked for review. We will keep activation locked until the templates are approved.</p>}
+            {integrations?.apollo.sequenceTemplatesApproved && !integrations?.apollo.sequenceActive && <p className="muted">Templates are marked ready. Activation will enable real scheduled emails for any enrolled contacts. No contacts are enrolled automatically by this app.</p>}
+            {integrations?.apollo.canActivateSequence && <button className="btn btn-primary" disabled={sequenceActivationBusy || integrationsLoading} onClick={() => void activateOutreachSequence()}>{sequenceActivationBusy ? "Activating…" : "Activate outreach sequence"}</button>}
+            {integrations?.apollo.sequenceActive && <p className="safe-message"><ShieldCheck size={15} /> Sequence is active. Enroll leads individually from the Leads tab after approval and a confirmation prompt.</p>}
           </div>
           <div className="panel settings-panel">
             <h2>Current safety settings</h2>
