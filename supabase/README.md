@@ -7,13 +7,14 @@ The hosted database was provisioned for this product before source control was a
 | Table | Purpose |
 |---|---|
 | `profiles` | App-specific user profile fields tied to `auth.users` |
-| `workspaces` | Small-business/team workspaces |
+| `workspaces` | Small-business/team workspaces, with a `business_profile` JSON object for onboarding context used by AI drafts |
 | `workspace_members` | Workspace membership and owner/admin/member roles |
 | `leads` | Lead/contact data, status, notes, and workspace-scoped email deduplication |
 | `lead_imports` | CSV import summary, counts, and row-level errors |
 | `lead_research` | Manually verified notes, research status, and source URLs |
 | `follow_up_drafts` | Email drafts, status, reviewer details, and sending/reply metadata |
 | `lead_activity` | Workspace activity history |
+| `gmail_connections` | Server-only Gmail OAuth connection metadata; refresh tokens are AES-256-GCM encrypted and regular `anon`/`authenticated` roles have no table privileges |
 
 ## Outreach integrations and status RPCs
 
@@ -31,12 +32,19 @@ Use this RPC rather than sending `owner_id` from client-side React state. It avo
 
 This function was applied directly to the hosted project after the initial schema setup, before the app repository was available. It must be included in the eventual reconciled initial migration baseline.
 
+## Gmail credentials and sending functions
+
+The `gmail_connections` table has RLS enabled and explicit privileges revoked from `public`, `anon`, and `authenticated`; only the service role is granted table access. The server routes must verify the current Supabase user before accessing a connection, and refresh tokens must remain encrypted with `GMAIL_TOKEN_ENCRYPTION_KEY`. The browser must never receive a service-role key or refresh token.
+
+The authenticated `create_workspace(p_name, p_slug, p_business_profile)` RPC stores the onboarding profile and derives ownership from `auth.uid()`. `claim_gmail_send`, `clear_gmail_send_claim`, and `record_gmail_email_sent` enforce an approval-only sending transition and guard against duplicate concurrent sends.
+
 ## Important safety properties
 
 - RLS is enabled for all public application tables.
 - Membership helper functions live in the non-exposed `private` schema and use a fixed search path.
 - A lead, research record, or draft cannot be moved to a different workspace by changing its `workspace_id`.
 - Email drafts require approval metadata before they can enter the `sent` state; normal authenticated clients are not allowed to mark drafts as sent.
+- Gmail connection tokens are not readable through the browser or regular authenticated table queries.
 - There is no live email sender or active automation in this build.
 - No sample prospect or follow-up data was inserted into the hosted project.
 
