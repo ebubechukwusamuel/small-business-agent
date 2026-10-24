@@ -15,6 +15,14 @@ The hosted database was provisioned for this product before source control was a
 | `follow_up_drafts` | Email drafts, status, reviewer details, and sending/reply metadata |
 | `lead_activity` | Workspace activity history |
 
+## Workspace creation
+
+A database function, `public.create_workspace(p_name text, p_slug text)`, creates a workspace with `owner_id` derived from `auth.uid()` inside the current authenticated request. It is **SECURITY INVOKER** (not SECURITY DEFINER), has an empty search path, and execution is granted only to the `authenticated` role. The existing `workspaces_insert_owner` RLS policy remains the authorization boundary, and the existing after-insert trigger adds the authenticated owner as the initial workspace member.
+
+Use this RPC rather than sending `owner_id` from client-side React state. It avoids mismatches between a cached client state value and the identity validated by the database.
+
+This function was applied directly to the hosted project after the initial schema setup, before the app repository was available. It must be included in the eventual reconciled initial migration baseline.
+
 ## Important safety properties
 
 - RLS is enabled for all public application tables.
