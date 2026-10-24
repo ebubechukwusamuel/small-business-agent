@@ -1,34 +1,40 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { gmailStorageConfigured, getStoredGmailConnection, googleOAuthConfigured } from "@/lib/gmail";
+import { gmailStorageConfigured, googleOAuthConfigured, getWorkspaceGmailConnection } from "@/lib/gmail";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
+  const workspaceId = request.nextUrl.searchParams.get("workspaceId");
+  if (!workspaceId) return NextResponse.json({ error: "A workspace is required." }, { status: 400 });
 
+  const { data: member } = await supabase.from("workspace_members").select("role")
+    .eq("workspace_id", workspaceId).eq("user_id", user.id).maybeSingle();
+  if (!member || !["owner", "admin"].includes(member.role)) return NextResponse.json({ error: "Only workspace owners or admins can view email settings." }, { status: 403 });
+
+  const { data: profile } = await supabase.from("business_profiles").select("email_history_consent")
+    .eq("workspace_id", workspaceId).maybeSingle();
   const configured = googleOAuthConfigured() && gmailStorageConfigured();
-  if (!configured) {
-    return NextResponse.json({
-      configured: false,
-      connected: false,
-      email: null,
-      reason: "Google OAuth credentials and private token storage must be configured by the app owner.",
-    }, { headers: { "Cache-Control": "no-store" } });
-  }
-
   try {
-    const connection = await getStoredGmailConnection(user.id);
+    const connection = configured ? await getWorkspaceGmailConnection(supabase, workspaceId) : null;
+    const scopes = connection?.scopes || [];
     return NextResponse.json({
-      configured: true,
+      configured,
+      googleOAuthConfigured: googleOAuthConfigured(),
+      tokenEncryptionConfigured: gmailStorageConfigured(),
       connected: Boolean(connection),
-      email: connection?.email || null,
-      scopes: connection?.scopes || [],
-      connectedAt: connection?.connected_at || null,
+      email: connection?.provider_email || null,
+      scopes,
+      connectedAt: connection?.created_at || null,
+      sendReady: Boolean(connection && scopes.includes("https://www.googleapis.com/auth/gmail.send")),
+      historyReady: Boolean(connection && scopes.includes("https://www.googleapis.com/auth/gmail.readonly")),
+      historyConsent: Boolean(profile?.email_history_consent),
+      setupMessage: configured ? null : "The app owner must configure Google OAuth Client ID, Google OAuth Client Secret, and the Gmail token encryption key in Vercel.",
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ configured: false, connected: false, email: null, reason: "Gmail connection status could not be read." }, { status: 503 });
+    return NextResponse.json({ configured, connected: false, email: null, error: "Gmail connection status could not be loaded." }, { status: 503 });
   }
 }
