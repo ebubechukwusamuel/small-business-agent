@@ -172,7 +172,6 @@ export async function POST(request: NextRequest) {
         method: "POST",
         body: JSON.stringify({
           contact_id: contact.id,
-          email_account_id: sender.id,
           subject: draftRow.subject,
           body_html: safeHtml(draftRow.body),
         }),
