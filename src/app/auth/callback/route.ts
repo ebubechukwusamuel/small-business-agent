@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     try {
       const candidate = new URL(requestedNext, request.url);
       if (candidate.origin === new URL(request.url).origin) {
-        next = \`\${candidate.pathname}\${candidate.search}\${candidate.hash}\`;
+        next = candidate.pathname + candidate.search + candidate.hash;
       }
     } catch {
       // Ignore malformed redirect targets and use the in-app dashboard.
