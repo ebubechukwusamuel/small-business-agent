@@ -143,6 +143,7 @@ export default function LoginPage() {
 
       <section className="auth-panel-wrap">
         <div className="auth-panel">
+          <a className="brand-lockup auth-mobile-brand" href="/" aria-label="Small Business Agent home"><span className="brand-mark"><Workflow size={18} strokeWidth={2.4} /></span><span>small business <strong>agent</strong></span></a>
           <div className="auth-panel-heading">
             <div className="eyebrow">YOUR WORKSPACE</div>
             <h2>{recoveryMode ? "Reset your password" : mode === "signin" ? "Welcome back" : "Create your account"}</h2>
