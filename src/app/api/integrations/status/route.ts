@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
   }
 
-  const aiKeyConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
+  const aiKeyConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL === "1");
   const aiModel = process.env.AI_DRAFT_MODEL || null;
   const apolloKeyConfigured = Boolean(process.env.APOLLO_API_KEY);
   const sequenceConfigured = Boolean(process.env.APOLLO_SEQUENCE_ID);
