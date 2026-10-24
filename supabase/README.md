@@ -50,7 +50,7 @@ The authenticated `create_workspace(p_name, p_slug, p_business_profile)` RPC sto
 - Gmail connection tokens are not readable through the browser or regular authenticated table queries.
 - Direct Gmail sending is implemented for approved drafts, but it stays unavailable until Google OAuth credentials and the encryption key are configured.
 - The separate Apollo sequence remains optional and inactive; sequence activation and enrollment are not automatic.
-- No sample prospect or follow-up data was inserted into the hosted project.
+- The existing `Mazion` workspace contains three clearly labelled fictional demo leads, one demo research note, and one demo draft. Their addresses use the reserved `.example` domain and the app blocks sending to these test records.
 
 ## Migration-history caveat
 
