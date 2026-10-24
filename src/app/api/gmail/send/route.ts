@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
   let gmailResult: { id: string; threadId?: string };
   try {
-    gmailResult = await sendGmailMessage(user.id, {
+    gmailResult = await sendGmailMessage(supabase, body.workspaceId, {
       to: lead.email.trim(),
       subject: draftRow.subject,
       body: draftRow.body,
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
 
   const recorded = await supabase.rpc("record_gmail_email_sent", {
     p_draft_id: draftRow.id,
-    p_gmail_message_id: gmailResult.id,
+    p_provider_message_id: gmailResult.id,
   });
   if (recorded.error) {
     return NextResponse.json({
