@@ -105,7 +105,7 @@ The initial hosted schema and follow-on changes were applied and verified direct
 
 ## Vercel
 
-The latest build is ready at [Small Business Agent](https://small-business-agent-ebubesamuel978-5695s-projects.vercel.app). This is a preview build, not a production release. Public Supabase connection settings, the AI model ID, and the Gmail OAuth callback URL are configured. The hosted app is set up for Vercel AI Gateway's OIDC authentication, but a live AI draft has not yet been verified end to end. Gmail is not yet connectable until the app owner adds a Google OAuth client ID and secret to Vercel environment variables. The source lives on GitHub, and automatic Git deployments should be verified in Vercel project settings before relying on them.
+The latest build is ready at [Small Business Agent](https://small-business-agent-ebubesamuel978-5695s-projects.vercel.app). This is a preview build, not a production release. Public Supabase connection settings, the AI model ID, the Gmail OAuth callback URL, and the token-encryption key are configured. The hosted app is set up for Vercel AI Gateway's OIDC authentication, but a live AI draft has not yet been verified end to end. Gmail is not yet connectable until the app owner adds a Google OAuth client ID and secret to Vercel environment variables. The source lives on GitHub; verify the repository link in Vercel project settings before relying on automatic deployments.
 
 ## Safe initial test plan
 
