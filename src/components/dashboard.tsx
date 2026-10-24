@@ -97,15 +97,35 @@ export default function Dashboard() {
   }
 
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!newWorkspaceName.trim() || !userId) return; setBusy(true);
+    event.preventDefault();
+    if (!newWorkspaceName.trim()) return;
+    setBusy(true);
     try {
       const slug = newWorkspaceName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + crypto.randomUUID().slice(0, 5);
-      const { data, error: insertError } = await supabase.from("workspaces").insert({ name: newWorkspaceName.trim(), slug, owner_id: userId }).select("id,name,slug").single();
+      // The database derives owner_id from auth.uid() inside an invoker-rights RPC.
+      // This avoids trusting a potentially stale client-side userId state value.
+      const { data, error: insertError } = await supabase.rpc("create_workspace", {
+        p_name: newWorkspaceName.trim(),
+        p_slug: slug,
+      });
       if (insertError) throw insertError;
-      const created = { ...data, role: "owner" } as Workspace;
-      setWorkspaces([created]); setWorkspaceId(created.id); notify("Workspace created.");
-    } catch (e) { notify(e instanceof Error ? e.message : "Couldn't create workspace.", true); }
-    finally { setBusy(false); }
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.id) throw new Error("The database did not return the new workspace. Refresh and try again.");
+      const created = { ...row, role: "owner" } as Workspace;
+      setWorkspaces(current => [...current.filter(w => w.id !== created.id), created]);
+      setWorkspaceId(created.id);
+      setUserId(current => current || userId);
+      notify("Workspace created.");
+    } catch (e) {
+      const detail = e instanceof Error
+        ? e.message
+        : e && typeof e === "object" && "message" in e
+          ? String((e as { message?: unknown }).message || "")
+          : "";
+      notify(detail ? "Couldn't create workspace: " + detail : "Couldn't create workspace. Please refresh and try again.", true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveLead(event: FormEvent<HTMLFormElement>) {
