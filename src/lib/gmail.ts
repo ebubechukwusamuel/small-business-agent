@@ -4,6 +4,7 @@ import type { createClient } from "@/lib/supabase/server";
 export type GmailConnection = {
   id: string;
   workspace_id: string;
+  created_at: string;
   provider: "gmail";
   provider_email: string;
   google_subject: string | null;
@@ -82,7 +83,7 @@ export async function getWorkspaceGmailConnection(
 ): Promise<GmailConnection | null> {
   const { data, error } = await supabase
     .from("email_connections")
-    .select("id,workspace_id,provider,provider_email,google_subject,encrypted_access_token,encrypted_refresh_token,scopes,expires_at,is_default,connected_by,last_history_sync_at,last_sync_error")
+    .select("id,workspace_id,created_at,provider,provider_email,google_subject,encrypted_access_token,encrypted_refresh_token,scopes,expires_at,is_default,connected_by,last_history_sync_at,last_sync_error")
     .eq("workspace_id", workspaceId)
     .eq("provider", "gmail")
     .order("is_default", { ascending: false })
