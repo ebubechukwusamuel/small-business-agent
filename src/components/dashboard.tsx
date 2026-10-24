@@ -503,6 +503,7 @@ export default function Dashboard() {
         differentiator: (businessProfileForm.differentiator || "").trim(),
         voice: businessProfileForm.voice || "friendly and conversational",
         call_to_action: businessProfileForm.call_to_action || "book a short discovery call",
+        email_history_consent: Boolean(businessProfileForm.email_history_consent),
       };
       const { error: updateError } = await supabase
         .from("workspaces")
