@@ -62,30 +62,34 @@ npm run build
 
 ## Connect Gmail, use email history, and send approved drafts
 
-Each app user connects their own Gmail account from **Settings → Connect Gmail**. The OAuth flow is server-side and requests only Gmail read-only access and send access. Once connected:
+Each workspace can connect its own Gmail mailbox from **Settings → Connect Gmail**. The OAuth flow is server-side and the stored access/refresh tokens are encrypted with AES-256-GCM using a server-only encryption key.
 
-- AI drafts use the saved workspace business profile (offer, industry, ideal customer, writing voice, and call to action).
-- When drafting for a lead with an email address, the app searches for recent messages to/from that address. It passes a short, lead-specific email history to the model to help it write a real follow-up or reply without inventing previous contact.
-- Emails are only sent from an approved draft after a workspace owner/admin confirms the recipient and clicks **Send via Gmail**.
-- Fictional demo email addresses ending in `.example`, `.test`, or `.invalid` are blocked.
-- Gmail access and refresh tokens are encrypted at rest with AES-256-GCM in `email_connections`, which is guarded by workspace Row Level Security. The encryption key is server-only and must never be prefixed with `NEXT_PUBLIC_` or committed to GitHub.
-- Users can disconnect Gmail, which removes the app's stored token and asks Google to revoke it.
+- Each business has its own profile: offer, industry, ideal customer, value proposition, writing voice, preferred call to action, and email-history consent.
+- AI uses that workspace profile, lead information, manually verified research, and only the email history that has been explicitly permitted and synced for a matching lead.
+- Without prior email history, AI is instructed to write a first-contact draft and not claim a previous message was sent.
+- Email history is **off by default**. Turn on **Allow AI to read relevant email history** in the Business Context form, save it, then reconnect Gmail to grant the extra read permission. Use **Sync matching email history** to import only messages matching addresses in that workspace's lead list.
+- Emails are sent only from an approved draft after a workspace owner/admin explicitly confirms the recipient and presses **Send via Gmail**. Fictional demo addresses ending in `.example`, `.test`, or `.invalid` are blocked.
+- A user can disconnect Gmail in Settings. The app tries to revoke the Google token and deletes the workspace connection. Previously synced email history remains in that workspace until deleted according to the project's retention policy; disconnecting doesn't automatically erase it.
+- The Gmail token encryption key is only used by the server and is never returned to the browser. Workspace access is enforced by Supabase Row Level Security.
 
 ### One-time Gmail setup for the app owner
 
-The app's Gmail connection is implemented, but the production OAuth credentials must be supplied by the project owner before the button becomes available:
+The Gmail connection is implemented, but Google OAuth credentials are not yet configured for this deployment. Until the app owner completes the steps below, **Connect Gmail** will stay disabled.
 
 1. In Google Cloud Console, create/select a Google Cloud project and enable the **Gmail API**.
-2. Configure the OAuth consent screen. For private testing, add the intended Google accounts as test users. Public use with Gmail read/send scopes may require Google OAuth verification; do not assume an unverified app is ready for all users.
-3. Create an OAuth client ID of type **Web application**. Add this exact callback as an authorized redirect URI: `https://YOUR_DEPLOYED_HOST/api/gmail/callback`. It must match `GOOGLE_REDIRECT_URI` exactly.
-4. In Vercel → `small-business-agent` → Settings → Environment Variables, add these encrypted/server-only values for Preview and Production: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GMAIL_TOKEN_ENCRYPTION_KEY`. Create the encryption key with `openssl rand -base64 32`. No Supabase service-role key is needed for this workspace-scoped integration.
-5. Redeploy, sign in, open Settings, and connect Gmail. Google will show a consent screen. Test with your own mailbox and a test lead before allowing use by other people.
+2. Configure the OAuth consent screen and publish the app details/privacy policy. For initial testing, add your own Google account as a test user.
+3. Create an OAuth client of type **Web application**. Add this exact Authorized redirect URI (and use the same URL for `GOOGLE_REDIRECT_URI` if setting it explicitly):
 
-The Gmail connection currently reads recent messages related to a specific lead; it does not scan or ingest the entire mailbox. Email content is sent to the configured AI model only when the user requests AI drafting for that lead. Sending is always a separate, explicit action.
+   `https://small-business-agent-ebubesamuel978-5695s-projects.vercel.app/api/gmail/callback`
+
+4. In Vercel → `small-business-agent` → Settings → Environment Variables, add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GMAIL_TOKEN_ENCRYPTION_KEY` as encrypted/server-only variables for Preview and Production. Generate the encryption key with `openssl rand -base64 32`. Never paste the Google client secret or encryption key into chat or commit them to GitHub.
+5. Redeploy, sign in, open Settings, and connect a test Gmail account. Verify sending and history behavior with a real inbox you control and a non-deliverable/demo lead before contacting anyone else.
+
+Google treats `gmail.send` as a sensitive scope and `gmail.readonly` as a restricted scope. Testing with a limited set of test users may be possible during development, but a public multi-user app may need Google OAuth verification, and restricted Gmail data stored or transmitted by a server can require a third-party security assessment. Check Google's current verification requirements before opening this to the public.
 
 ### Optional Apollo sequences
 
-Apollo is separate from direct Gmail sending. The existing `Mazion | AI Automation | B2B Services` sequence is inactive and its templates need review. Do not set `APOLLO_SEQUENCE_READY=true` until the sequence subject lines and message templates have been approved in Apollo. The app will not activate it automatically or enroll contacts by itself.
+Apollo is separate from direct Gmail sending. The existing `Mazion | AI Automation | B2B Services` sequence is inactive and its templates need review. Keep `APOLLO_SEQUENCE_READY=false` until subject lines and message templates have been reviewed and approved in Apollo. This app must not activate it or enroll contacts without a separate explicit decision.
 
 ## AI draft setup (cost-sensitive)
 
