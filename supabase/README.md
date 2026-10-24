@@ -14,6 +14,9 @@ The hosted database was provisioned for this product before source control was a
 | `lead_research` | Manually verified notes, research status, and source URLs |
 | `follow_up_drafts` | Email drafts, status, reviewer details, and sending/reply metadata |
 | `lead_activity` | Workspace activity history |
+| `business_profiles` | Onboarding profile, brand voice, offer, ideal customer, and explicit email-history consent |
+| `email_connections` | Workspace-scoped encrypted Gmail OAuth tokens and granted scopes |
+| `email_history` | Only lead-matched messages synced after explicit consent
 | `gmail_connections` | Server-only Gmail OAuth connection metadata; refresh tokens are AES-256-GCM encrypted and regular `anon`/`authenticated` roles have no table privileges |
 
 ## Outreach integrations and status RPCs
@@ -34,7 +37,7 @@ This function was applied directly to the hosted project after the initial schem
 
 ## Gmail credentials and sending functions
 
-The workspace-scoped `email_connections` table holds encrypted Gmail tokens and has RLS policies restricting access to workspace owners/admins. The server routes verify the current Supabase user and workspace role before connecting, reading history, disconnecting, or sending. Tokens must remain encrypted with `GMAIL_TOKEN_ENCRYPTION_KEY`. The browser must never receive a token or encryption key. The obsolete `gmail_connections` table is unused and has explicit deny policies; it can be dropped after confirming it remains empty.
+The workspace-scoped `email_connections` table holds encrypted Gmail tokens and has RLS policies restricting access to workspace owners/admins. The server routes verify the current Supabase user and workspace role before connecting, reading history, disconnecting, or sending. Tokens must remain encrypted with `GMAIL_TOKEN_ENCRYPTION_KEY`. The browser must never receive a token or encryption key. The duplicate, unused `gmail_connections` table was removed after confirming it contained zero rows and was not referenced by application code.
 
 The authenticated `create_workspace(p_name, p_slug, p_business_profile)` RPC stores the onboarding profile and derives ownership from `auth.uid()`. `claim_gmail_send`, `clear_gmail_send_claim`, and `record_gmail_email_sent` enforce an approval-only sending transition and guard against duplicate concurrent sends.
 
