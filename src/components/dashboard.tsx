@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowUpRight, Building2, Check, Clock3, FileText, LoaderCircle, LogOut, Mail, Plus, Search, ShieldCheck, Sparkles, Upload, Users, Workflow, X } from "lucide-react";
+import { Activity, ArrowUpRight, Building2, Check, Clock3, FileText, LoaderCircle, LogOut, Mail, Menu, Plus, Search, ShieldCheck, Sparkles, Upload, Users, Workflow, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type BusinessProfile = {
@@ -65,6 +65,8 @@ export default function Dashboard() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [tab, setTab] = useState("overview");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
@@ -220,6 +222,14 @@ export default function Dashboard() {
     }
   }, [workspaceId, workspaces]);
   useEffect(() => { void loadIntegrationStatus(); }, [loadIntegrationStatus]);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
 
   async function recordActivity(type: string, details: Record<string, unknown>, leadId: string | null = null) {
     if (!workspaceId || !userId) return;
@@ -580,20 +590,33 @@ export default function Dashboard() {
     }
   }
 
-  async function signOut() { await supabase.auth.signOut(); window.location.replace("/login"); }
+  async function signOut() {
+    if (signOutBusy) return;
+    setSignOutBusy(true);
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+      if (signOutError) throw signOutError;
+      window.location.replace("/login");
+    } catch (e) {
+      setSignOutBusy(false);
+      notify(e instanceof Error ? e.message : "Couldn't sign out. Please try again.", true);
+    }
+  }
 
   if (loading) return <main className="loading-screen"><LoaderCircle className="spin" size={22} /> Opening your workspace…</main>;
   if (!workspaces.length) return <main className="setup-shell"><form className="setup-card" onSubmit={createWorkspace}><div className="brand-lockup"><span className="brand-mark"><Workflow size={18} /></span><span>small business <strong>agent</strong></span></div><span className="eyebrow">FIRST STEP</span><h1>Set up your workspace</h1><p>Your leads, notes, and follow-up drafts will stay together here.</p><label className="field-label" htmlFor="workspaceName">Business or team name</label><input id="workspaceName" className="text-input" value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} required maxLength={80} placeholder="e.g. Palmtech Autos" /><button className="btn btn-primary btn-full" disabled={busy}>{busy ? "Creating…" : "Create workspace"}<ArrowUpRight size={16} /></button>{message && <p className="form-message">{message}</p>}<button type="button" className="link-button" onClick={signOut}>Sign out</button></form></main>;
 
   return <div className="app-shell">
-    <aside className="sidebar"><a className="brand-lockup" href="/dashboard"><span className="brand-mark"><Workflow size={18} /></span><span>small business <strong>agent</strong></span></a>
+    <button type="button" className="mobile-menu-backdrop" aria-label="Close navigation menu" hidden={!mobileMenuOpen} onClick={() => setMobileMenuOpen(false)} />
+    <aside className={"sidebar" + (mobileMenuOpen ? " is-mobile-open" : "")}><a className="brand-lockup" href="/dashboard"><span className="brand-mark"><Workflow size={18} /></span><span>small business <strong>agent</strong></span></a>
+      <button type="button" className="mobile-nav-close" aria-label="Close navigation menu" onClick={() => setMobileMenuOpen(false)}><X size={18} /></button>
       <div className="workspace-control"><label className="sidebar-label" htmlFor="workspace-select">WORKSPACE</label><select id="workspace-select" value={workspaceId} onChange={e => setWorkspaceId(e.target.value)}>{workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
-      {(["overview", "leads", "followups", "activity", "settings"] as const).map(t => <button key={t} type="button" aria-label={label(t)} title={label(t)} aria-current={tab === t ? "page" : undefined} className={"nav-item " + (tab === t ? "active" : "")} onClick={() => setTab(t)}>{t === "overview" ? <Activity size={20} /> : t === "leads" ? <Users size={20} /> : t === "followups" ? <Mail size={20} /> : t === "activity" ? <Clock3 size={20} /> : <ShieldCheck size={20} />}<span className="nav-label">{label(t)}</span>{t === "followups" && pendingDrafts.length > 0 ? <span className="nav-count">{pendingDrafts.length}</span> : null}</button>)}
+      {(["overview", "leads", "followups", "activity", "settings"] as const).map(t => <button key={t} type="button" aria-label={label(t)} title={label(t)} aria-current={tab === t ? "page" : undefined} className={"nav-item " + (tab === t ? "active" : "")} onClick={() => { setTab(t); setMobileMenuOpen(false); }}>{t === "overview" ? <Activity size={20} /> : t === "leads" ? <Users size={20} /> : t === "followups" ? <Mail size={20} /> : t === "activity" ? <Clock3 size={20} /> : <ShieldCheck size={20} />}<span className="nav-label">{label(t)}</span>{t === "followups" && pendingDrafts.length > 0 ? <span className="nav-count">{pendingDrafts.length}</span> : null}</button>)}
       <div className="sidebar-note"><ShieldCheck size={17} /><span><strong>Human in control</strong><small>Approval never sends an email. Sending and outreach automations remain off.</small></span></div>
-      <div className="sidebar-user"><span className="avatar">{initials(email)}</span><span><strong>{email.split("@")[0]}</strong><small>{email}</small></span><button title="Sign out" onClick={signOut}><LogOut size={16} /></button></div>
+      <div className="sidebar-user"><span className="avatar">{initials(email)}</span><span><strong>{email.split("@")[0]}</strong><small>{email}</small></span><button type="button" className="btn btn-secondary btn-small sidebar-sign-out" aria-label="Sign out of Small Business Agent" onClick={signOut} disabled={signOutBusy}><LogOut size={14} /> <span>{signOutBusy ? "Signing out…" : "Sign out"}</span></button></div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><div><span className="eyebrow">WORKSPACE / {label(tab)}</span><h1>{tab === "overview" ? "Your business, in view." : label(tab)}</h1></div><div className="topbar-actions"><span className="safe-pill"><span /> Safe mode</span><button className="btn btn-primary" onClick={() => { setLead({ company_name: "", contact_name: "", email: "", phone: "", website: "", notes: "" }); setModal("lead"); }}><Plus size={16} /> Add lead</button></div></header>
+      <header className="topbar"><div className="topbar-title-row"><button type="button" className="mobile-menu-toggle" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)}><Menu size={19} /></button><div className="topbar-title"><span className="eyebrow">WORKSPACE / {label(tab)}</span><h1>{tab === "overview" ? "Your business, in view." : label(tab)}</h1></div></div><div className="topbar-actions"><span className="safe-pill"><span /> Safe mode</span><button className="btn btn-primary" onClick={() => { setLead({ company_name: "", contact_name: "", email: "", phone: "", website: "", notes: "" }); setModal("lead"); }}><Plus size={16} /> Add lead</button></div></header>
       <section className="content-area">
         {(message || error) && <div className={"notice " + (error ? "notice-error" : "notice-success")} role="status">{message || error}<button aria-label="Dismiss" onClick={() => { setMessage(""); setError(""); }}><X size={16} /></button></div>}
         {tab === "overview" && <><div className="welcome-row"><div><p>Keep every lead moving without losing the human decision.</p></div><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="metric-grid"><div className="metric-card"><Users size={18} /><span>Total leads</span><strong>{leads.length}</strong></div><div className="metric-card"><Clock3 size={18} /><span>Needs approval</span><strong>{pendingDrafts.length}</strong></div><div className="metric-card"><Check size={18} /><span>Approved drafts</span><strong>{drafts.filter(d => d.status === "approved").length}</strong></div><div className="metric-card"><Activity size={18} /><span>Recent activity</span><strong>{activity.length}</strong></div></div><div className="panel"><div className="panel-heading"><div><h2>Recent leads</h2><p>Your latest prospects and next actions.</p></div><button className="text-action" onClick={() => setTab("leads")}>View leads <ArrowUpRight size={15} /></button></div>{leads.length ? leads.slice(0, 5).map(l => <div className="list-row" key={l.id}><span className="avatar">{initials(l.company_name)}</span><span className="row-copy"><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></span><span className={badge(l.status)}>{label(l.status)}</span><button className="btn btn-secondary btn-small" onClick={() => openDraft(l)}>Prepare follow-up</button></div>) : <div className="empty-state"><Users size={22} /><strong>Your lead list starts here</strong><p>Add a prospect manually or import a CSV.</p></div>}</div><div className="panel"><div className="panel-heading"><div><h2>Latest activity</h2><p>Changes recorded in this workspace.</p></div><button className="text-action" onClick={() => setTab("activity")}>View activity</button></div>{activity.slice(0, 4).map(a => <div className="activity-row" key={a.id}><span>{label(a.event_type)}</span><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity recorded yet.</p>}</div></>}
@@ -623,7 +646,7 @@ export default function Dashboard() {
         {tab === "activity" && <div className="panel">{activity.map(a => <div className="activity-row" key={a.id}><strong>{label(a.event_type)}</strong><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity has been recorded yet.</p>}</div>}
         {tab === "settings" && <div className="settings-stack">
           <div className="panel settings-panel">
-            <h2>{workspace?.name}</h2><p>Signed in as {email}</p>
+            <div className="settings-account-row"><div><h2>{workspace?.name}</h2><p>Signed in as {email}</p></div><button type="button" className="btn btn-secondary btn-small" onClick={signOut} disabled={signOutBusy}><LogOut size={14} /> {signOutBusy ? "Signing out…" : "Sign out"}</button></div>
             <p><ShieldCheck size={16} /> Every outreach message must be reviewed and approved before sending.</p>
           </div>
           <form className="panel settings-panel form-stack" onSubmit={saveBusinessProfile}>
