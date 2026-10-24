@@ -51,7 +51,7 @@ NEXT_PUBLIC_SITE_URL=https://your-deployed-app-url
    npm run dev
    ```
 
-5. Open `http://localhost:3000`, create an account, confirm it if required, then sign in. Create a workspace and begin with sample leads.
+5. Open `http://localhost:3000`, select **Create an account**, answer the business onboarding questions, then create the login. After email confirmation, the app creates a workspace from the saved onboarding profile. Existing accounts with no workspace can create one in the app.
 
 To run checks:
 
@@ -60,19 +60,32 @@ npm run typecheck
 npm run build
 ```
 
-## Enable the outreach integrations
+## Connect Gmail, use email history, and send approved drafts
 
-The hosted Vercel deployment can use Vercel AI Gateway through built-in OIDC, so no AI Gateway key is required for that deployment. The app is configured to use `anthropic/claude-haiku-4.5` and caps output to 500 tokens. Vercel currently includes `$5/month` in AI Gateway usage for teams; do not purchase extra credits without reviewing the price first.
+Each app user connects their own Gmail account from **Settings → Connect Gmail**. The OAuth flow is server-side and requests only Gmail read-only access and send access. Once connected:
 
-For Apollo:
+- AI drafts use the saved workspace business profile (offer, industry, ideal customer, writing voice, and call to action).
+- When drafting for a lead with an email address, the app searches for recent messages to/from that address. It passes a short, lead-specific email history to the model to help it write a real follow-up or reply without inventing previous contact.
+- Emails are only sent from an approved draft after a workspace owner/admin confirms the recipient and clicks **Send via Gmail**.
+- Fictional demo email addresses ending in `.example`, `.test`, or `.invalid` are blocked.
+- Gmail refresh tokens are encrypted at rest with AES-256-GCM in a table inaccessible to regular app users. The Supabase service-role key and encryption key are server-only secrets and must never be prefixed with `NEXT_PUBLIC_` or committed to GitHub.
+- Users can disconnect Gmail, which removes the app's stored token and asks Google to revoke it.
 
-1. In Apollo, open **Settings → Integrations → API Keys → Create new key**. Scope it to the endpoints used by this integration: email accounts list, contacts search/create, email draft create/send/status, and sequence search/activate/add contacts. Some Apollo endpoints require a master key; consult the endpoint permissions shown in Apollo when creating the key.
-2. In Apollo, open **Settings → Outbound → Mailbox → Link mailbox** and connect the individual Gmail or Microsoft inbox you intend to send from. Set it as the default and confirm it is active.
-3. In Vercel, open the `small-business-agent` project → Settings → Environment Variables. Add `APOLLO_API_KEY` as an encrypted server-only variable for Preview and Production. Do not prefix it with `NEXT_PUBLIC_` and do not paste the secret into chat.
-4. Review the existing Apollo sequence `Mazion | AI Automation | B2B Services`. Its 3 follow-up steps currently need subject lines, and the touches were awaiting review when last checked. Keep it inactive until the subjects and all touches are approved.
-5. Only after the sequence has been reviewed and approved, set `APOLLO_SEQUENCE_READY=true` as a server-side Vercel environment variable and redeploy. The app will then allow an owner/admin to activate the sequence and separately enroll individual approved leads, each behind an explicit confirmation.
+### One-time Gmail setup for the app owner
 
-The single-email action sends only a previously approved app draft and requires a per-message confirmation. The automated sequence uses Apollo's sequence templates and schedule. Demo addresses (`.example`, `.test`, `.invalid`) are blocked. This app does not enroll leads automatically or send anything merely because a draft was approved.
+The app's Gmail connection is implemented, but the production OAuth credentials must be supplied by the project owner before the button becomes available:
+
+1. In Google Cloud Console, create/select a Google Cloud project and enable the **Gmail API**.
+2. Configure the OAuth consent screen. For private testing, add the intended Google accounts as test users. Public use with Gmail read/send scopes may require Google OAuth verification; do not assume an unverified app is ready for all users.
+3. Create an OAuth client ID of type **Web application**. Add this exact callback as an authorized redirect URI: `https://YOUR_DEPLOYED_HOST/api/gmail/callback`. It must match `GOOGLE_REDIRECT_URI` exactly.
+4. In Vercel → `small-business-agent` → Settings → Environment Variables, add these encrypted/server-only values for Preview and Production: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `SUPABASE_SERVICE_ROLE_KEY`, and `GMAIL_TOKEN_ENCRYPTION_KEY`. Create an encryption key with `openssl rand -base64 32`. Copy the Supabase service-role/secret key only into Vercel's encrypted variable field; never send it in chat.
+5. Redeploy, sign in, open Settings, and connect Gmail. Google will show a consent screen. Test with your own mailbox and a test lead before allowing use by other people.
+
+The Gmail connection currently reads recent messages related to a specific lead; it does not scan or ingest the entire mailbox. Email content is sent to the configured AI model only when the user requests AI drafting for that lead. Sending is always a separate, explicit action.
+
+### Optional Apollo sequences
+
+Apollo is separate from direct Gmail sending. The existing `Mazion | AI Automation | B2B Services` sequence is inactive and its templates need review. Do not set `APOLLO_SEQUENCE_READY=true` until the sequence subject lines and message templates have been approved in Apollo. The app will not activate it automatically or enroll contacts by itself.
 
 ## AI draft setup (optional, cost-sensitive)
 
