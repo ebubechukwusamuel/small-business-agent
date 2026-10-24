@@ -99,3 +99,49 @@
     display: none;
   }
 }
+
+
+/* Business onboarding fields before account creation. */
+.onboarding-fields {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  background: #fbfcfb;
+  border-radius: 13px;
+  padding: 15px;
+  margin-bottom: 8px;
+}
+.onboarding-intro p,
+.onboarding-privacy { font-size: 11px; line-height: 1.55; }
+.onboarding-fields .field-label { margin-bottom: 0; }
+.onboarding-fields .text-input { margin-top: 0; }
+.auth-section-heading {
+  border-top: 1px solid var(--line);
+  padding-top: 17px;
+  margin: 3px 0 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.auth-panel-wrap:has(.onboarding-fields) { align-items: flex-start; }
+.auth-panel-wrap:has(.onboarding-fields) .auth-panel { max-width: 480px; }
+.auth-panel-wrap:has(.onboarding-fields) .auth-panel-footer { margin-top: 22px; }
+
+@media (max-width: 720px) {
+  /* On phones, show only the working login/signup form and its logo. */
+  .auth-story { display: none !important; }
+  .auth-shell { display: block; min-height: 100dvh; background: #fff; }
+  .auth-panel-wrap {
+    min-height: 100dvh;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: max(22px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  }
+  .auth-panel-wrap:has(.onboarding-fields) { align-items: flex-start; }
+  .auth-panel-wrap .auth-panel { max-width: 520px; }
+  .auth-panel-heading { margin-bottom: 21px; }
+  .auth-panel-heading h2 { font-size: 27px; }
+  .auth-panel-footer { margin-top: 25px; }
+  .onboarding-fields { padding: 13px; gap: 11px; }
+  .onboarding-fields .two-col { grid-template-columns: 1fr; }
+}
