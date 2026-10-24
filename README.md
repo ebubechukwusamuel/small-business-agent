@@ -99,18 +99,9 @@ The hosted Vercel deployment is configured to use the `anthropic/claude-haiku-4.
 
 The current hosted Supabase project is `small-business-agent` (`gljbjslrlrrnyxlofhkn`) in `eu-west-1`.
 
-The following eight public tables have been created and verified in that project:
+The current public tables are `profiles`, `workspaces`, `workspace_members`, `leads`, `lead_imports`, `lead_research`, `follow_up_drafts`, `lead_activity`, `business_profiles`, `email_connections`, and `email_history`. Row-level security is enabled on these tables; Gmail access tokens are encrypted and workspace-scoped. The old, unused `gmail_connections` table was removed.
 
-- `profiles`
-- `workspaces`
-- `workspace_members`
-- `leads`
-- `lead_imports`
-- `lead_research`
-- `follow_up_drafts`
-- `lead_activity`
-
-All eight have RLS enabled. The initial hosted schema was applied and verified directly before the source repository was available; its migration-history baseline has **not** yet been captured in this bundle. See [`supabase/README.md`](supabase/README.md) before applying future SQL migrations. Do not replay an initial-schema script against the existing project without first reconciling migration history.
+The initial hosted schema and follow-on changes were applied and verified directly before the repository had a complete migration baseline. A replayable migration history has **not** yet been reconstructed from the live schema. See [`supabase/README.md`](supabase/README.md) before applying future SQL migrations. Do not replay an initial-schema script against the existing project until the live schema and migration history have been reconciled.
 
 ## Vercel
 
