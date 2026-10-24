@@ -13,6 +13,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [businessProfile, setBusinessProfile] = useState({
+    businessName: "",
+    industry: "",
+    website: "",
+    offering: "",
+    idealCustomer: "",
+    differentiator: "",
+    voice: "friendly and conversational",
+    callToAction: "book a short discovery call",
+  });
   const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 
   async function resendConfirmation() {
@@ -52,6 +62,12 @@ export default function LoginPage() {
       setError("Connect the new Supabase project first. Copy its URL and publishable key into .env.local.");
       return;
     }
+    if (mode === "signup") {
+      if (!businessProfile.businessName.trim() || !businessProfile.industry.trim() || !businessProfile.offering.trim() || !businessProfile.idealCustomer.trim()) {
+        setError("Complete your business name, industry, what you offer, and ideal customer before creating an account.");
+        return;
+      }
+    }
     setLoading(true);
     try {
       const supabase = createClient();
@@ -64,7 +80,21 @@ export default function LoginPage() {
         const { data, error: authError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { emailRedirectTo: (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin) + "/auth/callback" },
+          options: {
+            emailRedirectTo: (process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin) + "/auth/callback",
+            data: {
+              business_name: businessProfile.businessName.trim(),
+              business_profile: {
+                industry: businessProfile.industry.trim(),
+                website: businessProfile.website.trim(),
+                offering: businessProfile.offering.trim(),
+                ideal_customer: businessProfile.idealCustomer.trim(),
+                differentiator: businessProfile.differentiator.trim(),
+                voice: businessProfile.voice,
+                call_to_action: businessProfile.callToAction,
+              },
+            },
+          },
         });
         if (authError) throw authError;
         if (!data.session) {
@@ -112,6 +142,44 @@ export default function LoginPage() {
           {error && <div className="notice notice-error" role="alert">{error}</div>}
           {message && <div className="notice notice-success" role="status">{message}</div>}
           <form className="auth-form" onSubmit={onSubmit}>
+            {mode === "signup" && <section className="onboarding-fields">
+              <div className="onboarding-intro">
+                <div className="eyebrow">ABOUT YOUR BUSINESS</div>
+                <p>Answer these first. The AI will use this context to write emails that sound like your business, not a generic template.</p>
+              </div>
+              <label className="field-label" htmlFor="businessName">Business or team name *</label>
+              <input id="businessName" className="text-input" autoComplete="organization" placeholder="e.g. Mazion" maxLength={100} value={businessProfile.businessName} onChange={e => setBusinessProfile({ ...businessProfile, businessName: e.target.value })} required />
+              <label className="field-label" htmlFor="industry">Industry *</label>
+              <input id="industry" className="text-input" placeholder="e.g. Marketing, logistics, healthcare" maxLength={120} value={businessProfile.industry} onChange={e => setBusinessProfile({ ...businessProfile, industry: e.target.value })} required />
+              <label className="field-label" htmlFor="website">Website (optional)</label>
+              <input id="website" className="text-input" type="url" placeholder="https://yourbusiness.com" value={businessProfile.website} onChange={e => setBusinessProfile({ ...businessProfile, website: e.target.value })} />
+              <label className="field-label" htmlFor="offering">What do you sell or help people with? *</label>
+              <textarea id="offering" className="text-input" rows={3} maxLength={1200} placeholder="Describe your products or services in simple words." value={businessProfile.offering} onChange={e => setBusinessProfile({ ...businessProfile, offering: e.target.value })} required />
+              <label className="field-label" htmlFor="idealCustomer">Who is your ideal customer? *</label>
+              <textarea id="idealCustomer" className="text-input" rows={2} maxLength={800} placeholder="e.g. Small B2B service businesses, founders, or operations leads." value={businessProfile.idealCustomer} onChange={e => setBusinessProfile({ ...businessProfile, idealCustomer: e.target.value })} required />
+              <label className="field-label" htmlFor="differentiator">Why do customers choose you? (optional)</label>
+              <textarea id="differentiator" className="text-input" rows={2} maxLength={800} placeholder="Your strengths, results, or what makes your offer different." value={businessProfile.differentiator} onChange={e => setBusinessProfile({ ...businessProfile, differentiator: e.target.value })} />
+              <div className="two-col">
+                <label className="field-label" htmlFor="voice">Writing style
+                  <select id="voice" className="text-input" value={businessProfile.voice} onChange={e => setBusinessProfile({ ...businessProfile, voice: e.target.value })}>
+                    <option value="friendly and conversational">Friendly and conversational</option>
+                    <option value="professional and direct">Professional and direct</option>
+                    <option value="warm and helpful">Warm and helpful</option>
+                    <option value="confident and concise">Confident and concise</option>
+                  </select>
+                </label>
+                <label className="field-label" htmlFor="callToAction">Preferred next step
+                  <select id="callToAction" className="text-input" value={businessProfile.callToAction} onChange={e => setBusinessProfile({ ...businessProfile, callToAction: e.target.value })}>
+                    <option value="book a short discovery call">Book a short call</option>
+                    <option value="reply to this email">Reply to the email</option>
+                    <option value="view the website">Visit the website</option>
+                    <option value="request a quote">Request a quote</option>
+                  </select>
+                </label>
+              </div>
+              <p className="onboarding-privacy">These answers become your workspace context. You can change them later in Settings.</p>
+            </section>}
+            {mode === "signup" && <div className="auth-section-heading">Create your login</div>}
             <label className="field-label" htmlFor="email">Work email</label>
             <input id="email" className="text-input" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} required />
             <div className="field-label-row"><label className="field-label" htmlFor="password">Password</label>{mode === "signin" && <span className="field-hint">Use your account password</span>}</div>
