@@ -34,7 +34,7 @@ This function was applied directly to the hosted project after the initial schem
 
 ## Gmail credentials and sending functions
 
-The `gmail_connections` table has RLS enabled and explicit privileges revoked from `public`, `anon`, and `authenticated`; only the service role is granted table access. The server routes must verify the current Supabase user before accessing a connection, and refresh tokens must remain encrypted with `GMAIL_TOKEN_ENCRYPTION_KEY`. The browser must never receive a service-role key or refresh token.
+The workspace-scoped `email_connections` table holds encrypted Gmail tokens and has RLS policies restricting access to workspace owners/admins. The server routes verify the current Supabase user and workspace role before connecting, reading history, disconnecting, or sending. Tokens must remain encrypted with `GMAIL_TOKEN_ENCRYPTION_KEY`. The browser must never receive a token or encryption key. The obsolete `gmail_connections` table is unused and has explicit deny policies; it can be dropped after confirming it remains empty.
 
 The authenticated `create_workspace(p_name, p_slug, p_business_profile)` RPC stores the onboarding profile and derives ownership from `auth.uid()`. `claim_gmail_send`, `clear_gmail_send_claim`, and `record_gmail_email_sent` enforce an approval-only sending transition and guard against duplicate concurrent sends.
 
@@ -45,7 +45,8 @@ The authenticated `create_workspace(p_name, p_slug, p_business_profile)` RPC sto
 - A lead, research record, or draft cannot be moved to a different workspace by changing its `workspace_id`.
 - Email drafts require approval metadata before they can enter the `sent` state; normal authenticated clients are not allowed to mark drafts as sent.
 - Gmail connection tokens are not readable through the browser or regular authenticated table queries.
-- There is no live email sender or active automation in this build.
+- Direct Gmail sending is implemented for approved drafts, but it stays unavailable until Google OAuth credentials and the encryption key are configured.
+- The separate Apollo sequence remains optional and inactive; sequence activation and enrollment are not automatic.
 - No sample prospect or follow-up data was inserted into the hosted project.
 
 ## Migration-history caveat
