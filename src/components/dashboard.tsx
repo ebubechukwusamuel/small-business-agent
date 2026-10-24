@@ -12,9 +12,10 @@ type BusinessProfile = {
   differentiator?: string;
   voice?: string;
   call_to_action?: string;
+  email_history_consent?: boolean;
 };
 type Workspace = { id: string; name: string; slug: string; role: string; business_profile?: BusinessProfile };
-type GmailStatus = { configured: boolean; connected: boolean; email: string | null; scopes?: string[]; connectedAt?: string | null; reason?: string };
+type GmailStatus = { configured: boolean; connected: boolean; email: string | null; scopes?: string[]; connectedAt?: string | null; reason?: string; sendReady?: boolean; historyReady?: boolean; historyConsent?: boolean };
 type Lead = { id: string; workspace_id: string; company_name: string; contact_name: string | null; email: string | null; phone: string | null; website: string | null; linkedin_url: string | null; source_type: string; status: string; notes: string | null; created_at: string };
 type Draft = { id: string; workspace_id: string; lead_id: string; subject: string; body: string; status: string; generation_method: string; created_at: string; rejection_reason: string | null; send_provider?: string | null; provider_message_id?: string | null; sent_at?: string | null; leads?: { company_name?: string; contact_name?: string | null; email?: string | null } | null };
 type IntegrationStatus = {
@@ -112,9 +113,10 @@ export default function Dashboard() {
   }, []);
 
   const loadGmailStatus = useCallback(async () => {
+    if (!workspaceId) { setGmailStatus(null); return; }
     setGmailLoading(true);
     try {
-      const response = await fetch("/api/gmail/status", { cache: "no-store" });
+      const response = await fetch("/api/gmail/status?workspaceId=" + encodeURIComponent(workspaceId), { cache: "no-store" });
       const result = await response.json();
       if (response.ok) setGmailStatus(result as GmailStatus);
       else setGmailStatus(null);
@@ -123,7 +125,7 @@ export default function Dashboard() {
     } finally {
       setGmailLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   const loadWorkspace = useCallback(async (id: string) => {
     const [l, d, a] = await Promise.all([
@@ -212,6 +214,7 @@ export default function Dashboard() {
         differentiator: "",
         voice: "friendly and conversational",
         call_to_action: "book a short discovery call",
+        email_history_consent: false,
         ...(selectedWorkspace.business_profile || {}),
       });
     }
@@ -506,6 +509,26 @@ export default function Dashboard() {
         .update({ business_profile: profile })
         .eq("id", workspaceId);
       if (updateError) throw updateError;
+
+      const { error: profileError } = await supabase.from("business_profiles").upsert({
+        workspace_id: workspaceId,
+        business_name: workspace?.name || "Business",
+        website: profile.website || null,
+        industry: profile.industry || "",
+        business_description: profile.offering || "",
+        products_services: profile.offering ? [profile.offering] : [],
+        ideal_customer: profile.ideal_customer || "",
+        target_market: "",
+        value_proposition: profile.differentiator || "",
+        business_goals: profile.call_to_action || "",
+        writing_tone: profile.voice || "friendly and conversational",
+        writing_preferences: "",
+        preferred_language: "English",
+        email_history_consent: Boolean(profile.email_history_consent),
+        onboarding_completed: Boolean(profile.industry && profile.offering && profile.ideal_customer),
+        created_by: userId,
+      }, { onConflict: "workspace_id" });
+      if (profileError) throw profileError;
       setWorkspaces(current => current.map(item => item.id === workspaceId ? { ...item, business_profile: profile } : item));
       await recordActivity("business_profile_updated", { industry: profile.industry, website: profile.website });
       notify("Business context saved. New AI drafts will use it.");
@@ -516,13 +539,35 @@ export default function Dashboard() {
     }
   }
 
+  async function syncGmailHistory() {
+    if (!workspaceId || !gmailStatus?.connected || !gmailStatus.historyConsent) {
+      notify("Save email-history permission in Business Profile settings first.", true);
+      return;
+    }
+    setGmailLoading(true);
+    try {
+      const response = await fetch("/api/gmail/sync-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Email history sync failed.");
+      notify("Email history sync complete: " + Number(result.messagesSaved || 0) + " matching message(s) saved from " + Number(result.leadsChecked || 0) + " lead(s).");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Email history sync failed.", true);
+    } finally {
+      setGmailLoading(false);
+    }
+  }
+
   async function disconnectGmail() {
     if (!gmailStatus?.connected) return;
     const confirmed = window.confirm("Disconnect " + gmailStatus.email + "? New drafts will no longer read this mailbox, and this app will no longer send through it.");
     if (!confirmed) return;
     setGmailLoading(true);
     try {
-      const response = await fetch("/api/gmail/disconnect", { method: "POST" });
+      const response = await fetch("/api/gmail/disconnect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Couldn't disconnect Gmail.");
       notify("Gmail disconnected.");
@@ -593,17 +638,18 @@ export default function Dashboard() {
               <label>Writing style<select className="text-input" value={businessProfileForm.voice || "friendly and conversational"} onChange={e => setBusinessProfileForm({ ...businessProfileForm, voice: e.target.value })}><option value="friendly and conversational">Friendly and conversational</option><option value="professional and direct">Professional and direct</option><option value="warm and helpful">Warm and helpful</option><option value="confident and concise">Confident and concise</option></select></label>
               <label>Preferred next step<select className="text-input" value={businessProfileForm.call_to_action || "book a short discovery call"} onChange={e => setBusinessProfileForm({ ...businessProfileForm, call_to_action: e.target.value })}><option value="book a short discovery call">Book a short call</option><option value="reply to this email">Reply to the email</option><option value="view the website">Visit the website</option><option value="request a quote">Request a quote</option></select></label>
             </div>
+            <label className="consent-setting"><input type="checkbox" checked={Boolean(businessProfileForm.email_history_consent)} onChange={e => setBusinessProfileForm({ ...businessProfileForm, email_history_consent: e.target.checked })} /><span><strong>Allow AI to read relevant email history</strong><small>Only search Gmail for messages matching lead email addresses, and use those messages when drafting. This requires Gmail read permission after you reconnect. You can turn it off here.</small></span></label>
             <div className="modal-actions"><span className="muted">Saved per workspace</span><button className="btn btn-primary" disabled={profileSaving}>{profileSaving ? "Saving…" : "Save business context"}</button></div>
           </form>
           <div className="panel settings-panel">
             <div className="panel-heading"><div><h2>Connect your Gmail</h2><p>When connected, AI can check recent emails with the lead and sending uses your own Gmail account.</p></div><span className={gmailStatus?.connected ? "status-badge good" : "status-badge waiting"}>{gmailStatus?.connected ? "Connected" : gmailStatus?.configured ? "Not connected" : "Setup needed"}</span></div>
             {gmailStatus?.connected
-              ? <><p><Mail size={16} /> Connected account: {gmailStatus.email}</p><p><ShieldCheck size={16} /> Granted access: read relevant email history and send email as you.</p><div className="row-actions"><button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void loadGmailStatus()}>{gmailLoading ? "Checking…" : "Refresh status"}</button><button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void disconnectGmail()}>{gmailLoading ? "Working…" : "Disconnect Gmail"}</button></div></>
-              : <><p><ShieldCheck size={16} /> Your Gmail connection is per user. Each team member connects their own mailbox and can revoke it later.</p>
+              ? <><p><Mail size={16} /> Connected account: {gmailStatus.email}</p><p><ShieldCheck size={16} /> Sending permission: {gmailStatus.sendReady ? "connected" : "not granted"}.</p><p><ShieldCheck size={16} /> Read permission: {gmailStatus.historyReady && gmailStatus.historyConsent ? "allowed for lead-matched email history" : "off or not granted"}.</p><div className="row-actions"><button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void loadGmailStatus()}>{gmailLoading ? "Checking…" : "Refresh status"}</button>{gmailStatus.historyConsent && !gmailStatus.historyReady && <a className="btn btn-secondary" href={"/api/gmail/connect?workspaceId=" + encodeURIComponent(workspaceId)}>Reconnect to allow history</a>}{gmailStatus.historyConsent && gmailStatus.historyReady && <button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void syncGmailHistory()}>{gmailLoading ? "Syncing…" : "Sync matching email history"}</button>}<button className="btn btn-secondary" disabled={gmailLoading} onClick={() => void disconnectGmail()}>{gmailLoading ? "Working…" : "Disconnect Gmail"}</button></div></>
+              : <><p><ShieldCheck size={16} /> This connection belongs to the selected workspace. Each business can connect its own sender account.</p>
                 {!gmailStatus?.configured && <p className="muted">Not ready to connect yet: the app owner must configure Google OAuth credentials and private encrypted token storage. The setup values belong in Vercel server environment variables, not in chat or browser code.</p>}
                 {gmailStatus?.reason && <p className="muted">{gmailStatus.reason}</p>}
-                <a className={"btn btn-primary " + (!gmailStatus?.configured ? "btn-disabled" : "")} href={gmailStatus?.configured ? "/api/gmail/connect" : undefined} aria-disabled={!gmailStatus?.configured} onClick={e => { if (!gmailStatus?.configured) e.preventDefault(); }}> <Mail size={16} /> Connect Gmail</a>
-                <p className="muted">Google will ask you to grant the permissions. Because reading Gmail is a sensitive permission, Google may require OAuth app verification before external users can connect. Only lead-specific messages are fetched when you ask the AI to draft.</p>
+                <a className={"btn btn-primary " + (!gmailStatus?.configured ? "btn-disabled" : "")} href={gmailStatus?.configured && workspaceId ? "/api/gmail/connect?workspaceId=" + encodeURIComponent(workspaceId) : undefined} aria-disabled={!gmailStatus?.configured || !workspaceId} onClick={e => { if (!gmailStatus?.configured || !workspaceId) e.preventDefault(); }}> <Mail size={16} /> Connect Gmail</a>
+                <p className="muted">Google will ask you to grant the permissions. Because reading Gmail is a sensitive permission, Google may require OAuth app verification before external users can connect. Reading history is an explicit opt-in. After setup, the app only syncs messages that match email addresses on this workspace's leads.</p>
               </>}
           </div>
           <div className="panel settings-panel">
