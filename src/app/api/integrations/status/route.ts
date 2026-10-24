@@ -25,7 +25,7 @@ export async function GET() {
 
   if (apolloKeyConfigured) {
     try {
-      const mailboxes = await getApolloEmailAccounts();
+      const mailboxes = (await getApolloEmailAccounts()).filter((account) => account.active !== false && !account.revoked_at);
       mailboxCount = mailboxes.length;
       const preferred = mailboxes.find((account) => account.default) || (mailboxes.length === 1 ? mailboxes[0] : null);
       if (preferred?.email) defaultMailbox = { id: preferred.id, email: preferred.email, name: preferred.name };
