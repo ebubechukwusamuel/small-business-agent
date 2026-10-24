@@ -555,19 +555,23 @@ export default function Dashboard() {
         {tab === "followups" && <div className="draft-list">{drafts.map(d => {
           const isDemoRecipient = Boolean(d.leads?.email && (/\.(example|test|invalid)$/i.test(d.leads.email.split("@")[1] || "") || /@example\.(com|org|net)$/i.test(d.leads.email)));
           const isQueued = d.status === "approved" && d.send_provider === "apollo" && Boolean(d.provider_message_id);
+          const isGmailLocked = d.status === "approved" && d.send_provider === "gmail" && Boolean(d.provider_message_id);
           return <article className="draft-card" key={d.id}>
             <div className="draft-heading"><div><h2>{d.leads?.company_name || "Follow-up draft"}</h2><p>{d.leads?.contact_name || d.leads?.email || "Contact details not available"} · {dateLabel(d.created_at)}</p></div><span className={badge(d.status)}>{isQueued ? "Queued" : label(d.status)}</span></div>
             <h3>{d.subject}</h3><p className="draft-body">{d.body}</p>
             {d.rejection_reason && <p className="muted">Reason: {d.rejection_reason}</p>}
             {d.status === "pending_approval" && canApprove && <div className="row-actions"><button className="btn btn-secondary" disabled={busy} onClick={() => reviewDraft(d, "rejected")}><X size={15} /> Reject</button><button className="btn btn-primary" disabled={busy} onClick={() => reviewDraft(d, "approved")}><Check size={15} /> Approve</button></div>}
             {d.status === "pending_approval" && !canApprove && <p className="muted">Only workspace owners or admins can approve.</p>}
-            {d.status === "approved" && !isQueued && canApprove && (isDemoRecipient
+            {d.status === "approved" && !isQueued && !isGmailLocked && canApprove && (isDemoRecipient
               ? <p className="safe-message"><ShieldCheck size={15} /> Demo lead — live sending is blocked.</p>
-              : <div className="row-actions"><button className="btn btn-primary" disabled={sendBusyDraftId === d.id || !integrations?.apollo.liveSendReady} onClick={() => void sendApprovedDraft(d)}><Mail size={15} /> {sendBusyDraftId === d.id ? "Sending…" : "Send via Apollo"}</button>{!integrations?.apollo.liveSendReady && <p className="muted">Connect an Apollo sender mailbox and API key in Settings first.</p>}</div>
+              : gmailStatus?.connected
+                ? <div className="row-actions"><button className="btn btn-primary" disabled={sendBusyDraftId === d.id} onClick={() => void sendApprovedDraft(d)}><Mail size={15} /> {sendBusyDraftId === d.id ? "Sending…" : "Send via Gmail"}</button><p className="muted">From {gmailStatus.email}. You'll confirm the recipient before sending.</p></div>
+                : <div className="row-actions"><button className="btn btn-secondary" onClick={() => setTab("settings")}>Connect Gmail to send</button><p className="muted">Connect your mailbox in Settings first.</p></div>
             )}
-            {d.status === "approved" && !isQueued && !canApprove && <p className="muted">Only workspace owners or admins can send approved drafts.</p>}
+            {d.status === "approved" && isGmailLocked && <p className="notice notice-warning">A Gmail send is being processed or needs checking. Check the connected Gmail account's Sent folder before attempting another send to avoid duplicates.</p>}
+            {d.status === "approved" && !isQueued && !isGmailLocked && !canApprove && <p className="muted">Only workspace owners or admins can send approved drafts.</p>}
             {isQueued && canApprove && <div className="row-actions"><p className="safe-message"><Clock3 size={15} /> Sent/queued through Apollo — delivery status may still be pending.</p><button className="btn btn-secondary" disabled={sendBusyDraftId === d.id} onClick={() => void refreshApprovedDraftStatus(d)}>{sendBusyDraftId === d.id ? "Checking…" : "Refresh status"}</button></div>}
-            {d.status === "sent" && <p className="safe-message"><Check size={15} /> Email marked sent by Apollo{d.sent_at ? " · " + dateLabel(d.sent_at) : ""}.</p>}
+            {d.status === "sent" && <p className="safe-message"><Check size={15} /> Email marked sent via {d.send_provider === "gmail" ? "Gmail" : d.send_provider === "apollo" ? "Apollo" : "provider"}{d.sent_at ? " · " + dateLabel(d.sent_at) : ""}.</p>}
           </article>;
         })}{!drafts.length && <div className="panel empty-state"><Mail size={22} /><strong>No follow-up drafts yet</strong><p>Create a draft from a lead. Every draft needs human approval.</p><button className="btn btn-primary" onClick={() => setTab("leads")}>Choose a lead</button></div>}</div>}
         {tab === "activity" && <div className="panel">{activity.map(a => <div className="activity-row" key={a.id}><strong>{label(a.event_type)}</strong><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity has been recorded yet.</p>}</div>}
