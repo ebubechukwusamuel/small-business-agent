@@ -145,3 +145,36 @@
   .onboarding-fields { padding: 13px; gap: 11px; }
   .onboarding-fields .two-col { grid-template-columns: 1fr; }
 }
+
+
+/* Mobile sign-in/sign-up: keep the form, hide the desktop marketing panel. */
+@media (max-width: 720px) {
+  .auth-shell {
+    display: block;
+    min-height: 100dvh;
+    background: #fff;
+  }
+  .auth-story {
+    display: none !important;
+  }
+  .auth-panel-wrap {
+    min-height: 100dvh;
+    width: 100%;
+    justify-content: flex-start;
+    padding: 28px 22px calc(30px + env(safe-area-inset-bottom));
+  }
+  .auth-panel {
+    width: 100%;
+    max-width: 480px;
+    margin: auto;
+  }
+  .auth-panel-heading h2 {
+    font-size: 27px;
+  }
+  .auth-panel-footer {
+    display: none;
+  }
+  .auth-security {
+    font-size: 10px;
+  }
+}
