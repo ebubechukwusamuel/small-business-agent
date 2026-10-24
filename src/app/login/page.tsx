@@ -29,7 +29,7 @@ export default function LoginPage() {
     setMessage("");
     try {
       const supabase = createClient();
-      const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\\/+$/, "") || window.location.origin;
+      const redirectBase = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || window.location.origin;
       const { error: resendError } = await supabase.auth.resend({
         type: "signup",
         email: email.trim(),
