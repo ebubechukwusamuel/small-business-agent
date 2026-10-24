@@ -6,7 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 
 type Workspace = { id: string; name: string; slug: string; role: string };
 type Lead = { id: string; workspace_id: string; company_name: string; contact_name: string | null; email: string | null; phone: string | null; website: string | null; linkedin_url: string | null; source_type: string; status: string; notes: string | null; created_at: string };
-type Draft = { id: string; workspace_id: string; lead_id: string; subject: string; body: string; status: string; generation_method: string; created_at: string; rejection_reason: string | null; leads?: { company_name?: string; contact_name?: string | null; email?: string | null } | null };
+type Draft = { id: string; workspace_id: string; lead_id: string; subject: string; body: string; status: string; generation_method: string; created_at: string; rejection_reason: string | null; send_provider?: string | null; provider_message_id?: string | null; sent_at?: string | null; leads?: { company_name?: string; contact_name?: string | null; email?: string | null } | null };
+type IntegrationStatus = {
+  ai: { keyConfigured: boolean; modelConfigured: boolean; model: string | null; ready: boolean };
+  apollo: { apiKeyConfigured: boolean; mailboxCount: number; defaultMailbox: { email: string; name?: string | null } | null; sequenceConfigured: boolean; liveSendReady: boolean; sequenceReadyForEnrollment: boolean; connectionError: string | null; sequenceActive?: boolean | null; sequenceName?: string | null };
+};
 type ActivityRow = { id: string; event_type: string; details: Record<string, unknown>; created_at: string; lead_id: string | null };
 type Modal = "lead" | "import" | "research" | "draft" | null;
 
@@ -50,6 +54,9 @@ export default function Dashboard() {
   const [draft, setDraft] = useState({ subject: "", body: "", method: "template" });
   const [aiModel, setAiModel] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null);
+  const [integrationsLoading, setIntegrationsLoading] = useState(false);
+  const [sendBusyDraftId, setSendBusyDraftId] = useState<string | null>(null);
 
   const workspace = workspaces.find(w => w.id === workspaceId) || null;
   const canApprove = workspace?.role === "owner" || workspace?.role === "admin";
@@ -58,10 +65,24 @@ export default function Dashboard() {
 
   const notify = (text: string, isError = false) => { setMessage(text); setError(isError ? text : ""); };
 
+  const loadIntegrationStatus = useCallback(async () => {
+    setIntegrationsLoading(true);
+    try {
+      const response = await fetch("/api/integrations/status", { cache: "no-store" });
+      const result = await response.json();
+      if (response.ok) setIntegrations(result as IntegrationStatus);
+      else setIntegrations(null);
+    } catch {
+      setIntegrations(null);
+    } finally {
+      setIntegrationsLoading(false);
+    }
+  }, []);
+
   const loadWorkspace = useCallback(async (id: string) => {
     const [l, d, a] = await Promise.all([
       supabase.from("leads").select("id,workspace_id,company_name,contact_name,email,phone,website,linkedin_url,source_type,status,notes,created_at").eq("workspace_id", id).order("created_at", { ascending: false }).limit(300),
-      supabase.from("follow_up_drafts").select("id,workspace_id,lead_id,subject,body,status,generation_method,created_at,rejection_reason,leads(company_name,contact_name,email)").eq("workspace_id", id).order("created_at", { ascending: false }).limit(150),
+      supabase.from("follow_up_drafts").select("id,workspace_id,lead_id,subject,body,status,generation_method,created_at,rejection_reason,send_provider,provider_message_id,sent_at,leads(company_name,contact_name,email)").eq("workspace_id", id).order("created_at", { ascending: false }).limit(150),
       supabase.from("lead_activity").select("id,event_type,details,created_at,lead_id").eq("workspace_id", id).order("created_at", { ascending: false }).limit(100),
     ]);
     if (l.error) notify("Couldn't load leads: " + l.error.message, true); else setLeads((l.data || []) as Lead[]);
@@ -89,6 +110,7 @@ export default function Dashboard() {
 
   useEffect(() => { void initialize(); }, [initialize]);
   useEffect(() => { if (workspaceId) void loadWorkspace(workspaceId); }, [workspaceId, loadWorkspace]);
+  useEffect(() => { void loadIntegrationStatus(); }, [loadIntegrationStatus]);
 
   async function recordActivity(type: string, details: Record<string, unknown>, leadId: string | null = null) {
     if (!workspaceId || !userId) return;
@@ -225,6 +247,69 @@ export default function Dashboard() {
     } catch (e) { notify(e instanceof Error ? e.message : "Couldn't update draft.", true); }
     finally { setBusy(false); }
   }
+  async function sendApprovedDraft(d: Draft) {
+    const recipient = d.leads?.email?.trim();
+    if (!recipient) {
+      notify("This lead has no email address.", true);
+      return;
+    }
+    if (/\.(example|test|invalid)$/i.test(recipient.split("@")[1] || "") || /@example\.(com|org|net)$/i.test(recipient)) {
+      notify("This is fictional demo data. Sending is blocked for demo addresses.", true);
+      return;
+    }
+    if (!integrations?.apollo.liveSendReady) {
+      setTab("settings");
+      await loadIntegrationStatus();
+      notify("Apollo is not ready to send yet. Check the connection status in Settings.", true);
+      return;
+    }
+    const confirmed = window.confirm(
+      "Send this approved email through Apollo?\n\nTo: " + recipient + "\nSubject: " + d.subject +
+      "\n\nThis sends a real email. Continue only if you have permission to contact this person."
+    );
+    if (!confirmed) return;
+
+    setSendBusyDraftId(d.id);
+    try {
+      const response = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftId: d.id, workspaceId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Email sending failed.");
+      if (result.state === "delivered") {
+        notify("Apollo confirmed delivery of the email.");
+      } else {
+        notify("Apollo accepted the email for processing. Refresh the status to confirm delivery.");
+      }
+      await loadWorkspace(workspaceId);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Email sending failed.", true);
+    } finally {
+      setSendBusyDraftId(null);
+    }
+  }
+
+  async function refreshApprovedDraftStatus(d: Draft) {
+    setSendBusyDraftId(d.id);
+    try {
+      const response = await fetch("/api/send-email/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftId: d.id, workspaceId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Couldn't refresh send status.");
+      notify(result.state === "delivered" ? "Apollo confirmed delivery." : "The email is still being processed by Apollo.");
+      await loadWorkspace(workspaceId);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't refresh send status.", true);
+    } finally {
+      setSendBusyDraftId(null);
+    }
+  }
+
   async function signOut() { await supabase.auth.signOut(); window.location.replace("/login"); }
 
   if (loading) return <main className="loading-screen"><LoaderCircle className="spin" size={22} /> Opening your workspace…</main>;
@@ -243,9 +328,60 @@ export default function Dashboard() {
         {(message || error) && <div className={"notice " + (error ? "notice-error" : "notice-success")} role="status">{message || error}<button aria-label="Dismiss" onClick={() => { setMessage(""); setError(""); }}><X size={16} /></button></div>}
         {tab === "overview" && <><div className="welcome-row"><div><p>Keep every lead moving without losing the human decision.</p></div><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="metric-grid"><div className="metric-card"><Users size={18} /><span>Total leads</span><strong>{leads.length}</strong></div><div className="metric-card"><Clock3 size={18} /><span>Needs approval</span><strong>{pendingDrafts.length}</strong></div><div className="metric-card"><Check size={18} /><span>Approved drafts</span><strong>{drafts.filter(d => d.status === "approved").length}</strong></div><div className="metric-card"><Activity size={18} /><span>Recent activity</span><strong>{activity.length}</strong></div></div><div className="panel"><div className="panel-heading"><div><h2>Recent leads</h2><p>Your latest prospects and next actions.</p></div><button className="text-action" onClick={() => setTab("leads")}>View leads <ArrowUpRight size={15} /></button></div>{leads.length ? leads.slice(0, 5).map(l => <div className="list-row" key={l.id}><span className="avatar">{initials(l.company_name)}</span><span className="row-copy"><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></span><span className={badge(l.status)}>{label(l.status)}</span><button className="btn btn-secondary btn-small" onClick={() => openDraft(l)}>Prepare follow-up</button></div>) : <div className="empty-state"><Users size={22} /><strong>Your lead list starts here</strong><p>Add a prospect manually or import a CSV.</p></div>}</div><div className="panel"><div className="panel-heading"><div><h2>Latest activity</h2><p>Changes recorded in this workspace.</p></div><button className="text-action" onClick={() => setTab("activity")}>View activity</button></div>{activity.slice(0, 4).map(a => <div className="activity-row" key={a.id}><span>{label(a.event_type)}</span><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity recorded yet.</p>}</div></>}
         {tab === "leads" && <><div className="toolbar"><label className="search"><Search size={16} /><input placeholder="Search leads" value={search} onChange={e => setSearch(e.target.value)} /></label><button className="btn btn-secondary" onClick={() => setModal("import")}><Upload size={16} /> Import CSV</button></div><div className="panel"><div className="table-wrap"><table><thead><tr><th>Company / contact</th><th>Status</th><th>Source</th><th>Added</th><th>Actions</th></tr></thead><tbody>{filteredLeads.map(l => <tr key={l.id}><td><strong>{l.company_name}</strong><small>{l.contact_name || l.email || "Contact not added"}</small></td><td><span className={badge(l.status)}>{label(l.status)}</span></td><td>{l.source_type === "csv" ? "CSV" : "Manual"}</td><td>{dateLabel(l.created_at)}</td><td><div className="row-actions"><button className="text-action" onClick={() => openResearch(l)}><FileText size={14} /> Notes</button><button className="text-action" onClick={() => openDraft(l)}><Mail size={14} /> Draft</button></div></td></tr>)}</tbody></table></div>{!filteredLeads.length && <div className="empty-state"><Users size={22} /><strong>No matching leads</strong><p>Add a lead or adjust your search.</p></div>}</div></>}
-        {tab === "followups" && <div className="draft-list">{drafts.map(d => <article className="draft-card" key={d.id}><div className="draft-heading"><div><h2>{d.leads?.company_name || "Follow-up draft"}</h2><p>{d.leads?.contact_name || d.leads?.email || "Contact details not available"} · {dateLabel(d.created_at)}</p></div><span className={badge(d.status)}>{label(d.status)}</span></div><h3>{d.subject}</h3><p className="draft-body">{d.body}</p>{d.rejection_reason && <p className="muted">Reason: {d.rejection_reason}</p>}{d.status === "pending_approval" && canApprove && <div className="row-actions"><button className="btn btn-secondary" disabled={busy} onClick={() => reviewDraft(d, "rejected")}><X size={15} /> Reject</button><button className="btn btn-primary" disabled={busy} onClick={() => reviewDraft(d, "approved")}><Check size={15} /> Approve</button></div>}{d.status === "pending_approval" && !canApprove && <p className="muted">Only workspace owners or admins can approve.</p>}{d.status === "approved" && <p className="safe-message"><ShieldCheck size={15} /> Approved — email sending is still disabled.</p>}</article>)}{!drafts.length && <div className="panel empty-state"><Mail size={22} /><strong>No follow-up drafts yet</strong><p>Create a draft from a lead. Every draft needs human approval.</p><button className="btn btn-primary" onClick={() => setTab("leads")}>Choose a lead</button></div>}</div>}
+        {tab === "followups" && <div className="draft-list">{drafts.map(d => {
+          const isDemoRecipient = Boolean(d.leads?.email && (/\.(example|test|invalid)$/i.test(d.leads.email.split("@")[1] || "") || /@example\.(com|org|net)$/i.test(d.leads.email)));
+          const isQueued = d.status === "approved" && d.send_provider === "apollo" && Boolean(d.provider_message_id);
+          return <article className="draft-card" key={d.id}>
+            <div className="draft-heading"><div><h2>{d.leads?.company_name || "Follow-up draft"}</h2><p>{d.leads?.contact_name || d.leads?.email || "Contact details not available"} · {dateLabel(d.created_at)}</p></div><span className={badge(d.status)}>{isQueued ? "Queued" : label(d.status)}</span></div>
+            <h3>{d.subject}</h3><p className="draft-body">{d.body}</p>
+            {d.rejection_reason && <p className="muted">Reason: {d.rejection_reason}</p>}
+            {d.status === "pending_approval" && canApprove && <div className="row-actions"><button className="btn btn-secondary" disabled={busy} onClick={() => reviewDraft(d, "rejected")}><X size={15} /> Reject</button><button className="btn btn-primary" disabled={busy} onClick={() => reviewDraft(d, "approved")}><Check size={15} /> Approve</button></div>}
+            {d.status === "pending_approval" && !canApprove && <p className="muted">Only workspace owners or admins can approve.</p>}
+            {d.status === "approved" && !isQueued && canApprove && (isDemoRecipient
+              ? <p className="safe-message"><ShieldCheck size={15} /> Demo lead — live sending is blocked.</p>
+              : <div className="row-actions"><button className="btn btn-primary" disabled={sendBusyDraftId === d.id || !integrations?.apollo.liveSendReady} onClick={() => void sendApprovedDraft(d)}><Mail size={15} /> {sendBusyDraftId === d.id ? "Sending…" : "Send via Apollo"}</button>{!integrations?.apollo.liveSendReady && <p className="muted">Connect an Apollo sender mailbox and API key in Settings first.</p>}</div>
+            )}
+            {d.status === "approved" && !isQueued && !canApprove && <p className="muted">Only workspace owners or admins can send approved drafts.</p>}
+            {isQueued && canApprove && <div className="row-actions"><p className="safe-message"><Clock3 size={15} /> Sent/queued through Apollo — delivery status may still be pending.</p><button className="btn btn-secondary" disabled={sendBusyDraftId === d.id} onClick={() => void refreshApprovedDraftStatus(d)}>{sendBusyDraftId === d.id ? "Checking…" : "Refresh status"}</button></div>}
+            {d.status === "sent" && <p className="safe-message"><Check size={15} /> Email marked sent by Apollo{d.sent_at ? " · " + dateLabel(d.sent_at) : ""}.</p>}
+          </article>;
+        })}{!drafts.length && <div className="panel empty-state"><Mail size={22} /><strong>No follow-up drafts yet</strong><p>Create a draft from a lead. Every draft needs human approval.</p><button className="btn btn-primary" onClick={() => setTab("leads")}>Choose a lead</button></div>}</div>}
         {tab === "activity" && <div className="panel">{activity.map(a => <div className="activity-row" key={a.id}><strong>{label(a.event_type)}</strong><small>{String(a.details?.company_name || a.details?.subject || a.details?.filename || "Workspace change")} · {dateLabel(a.created_at)}</small></div>)}{!activity.length && <p className="muted">No activity has been recorded yet.</p>}</div>}
-        {tab === "settings" && <div className="panel settings-panel"><h2>{workspace?.name}</h2><p>Signed in as {email}</p><p><ShieldCheck size={16} /> Human approval required before follow-ups are marked approved.</p><p><Mail size={16} /> Email sending is not connected.</p><p><Sparkles size={16} /> AI drafting remains disabled until a provider and model are configured on the server.</p><p><Workflow size={16} /> No outreach automations are active.</p></div>}
+        {tab === "settings" && <div className="settings-stack">
+          <div className="panel settings-panel">
+            <h2>{workspace?.name}</h2><p>Signed in as {email}</p>
+            <p><ShieldCheck size={16} /> Every outreach message must be reviewed and approved before sending.</p>
+          </div>
+          <div className="panel settings-panel">
+            <div className="panel-heading"><div><h2>AI draft generation</h2><p>Uses a server-side model; the API key is never sent to the browser.</p></div><span className={integrations?.ai.ready ? "status-badge good" : "status-badge waiting"}>{integrations?.ai.ready ? "Connected" : "Setup needed"}</span></div>
+            <p><Sparkles size={16} /> Model: {integrations?.ai.model || "Not selected"}</p>
+            <p><Check size={16} /> Model setting: {integrations?.ai.modelConfigured ? "configured" : "missing"}</p>
+            <p><ShieldCheck size={16} /> Gateway API key: {integrations?.ai.keyConfigured ? "configured" : "not configured"}</p>
+            {!integrations?.ai.keyConfigured && <p className="muted">Create an API key in Vercel AI Gateway, then add it as AI_GATEWAY_API_KEY in this project's Vercel environment variables. Do not paste the key into chat. AI requests use your included free Gateway allowance first; requests beyond any free allowance may be chargeable.</p>}
+          </div>
+          <div className="panel settings-panel">
+            <div className="panel-heading"><div><h2>Apollo email sending</h2><p>Approved drafts are sent using your connected Apollo mailbox.</p></div><span className={integrations?.apollo.liveSendReady ? "status-badge good" : "status-badge waiting"}>{integrations?.apollo.liveSendReady ? "Connected" : "Setup needed"}</span></div>
+            <p><Mail size={16} /> Apollo API key: {integrations?.apollo.apiKeyConfigured ? "configured" : "not configured"}</p>
+            <p><Users size={16} /> Sending mailboxes connected: {integrations?.apollo.mailboxCount ?? "not checked"}</p>
+            {integrations?.apollo.defaultMailbox?.email && <p><Check size={16} /> Default sender: {integrations.apollo.defaultMailbox.email}</p>}
+            {integrations?.apollo.connectionError && <p className="notice notice-error">{integrations.apollo.connectionError}</p>}
+            {!integrations?.apollo.apiKeyConfigured && <p className="muted">Create an Apollo API key and add it as APOLLO_API_KEY in Vercel environment variables. Keep it server-side and never prefix it with NEXT_PUBLIC_.</p>}
+            {integrations?.apollo.apiKeyConfigured && !integrations?.apollo.mailboxCount && <p className="muted">Apollo currently has no linked sending mailbox. Connect the inbox you want to send from in Apollo first, then refresh this panel.</p>}
+            <button className="btn btn-secondary" disabled={integrationsLoading} onClick={() => void loadIntegrationStatus()}>{integrationsLoading ? "Checking…" : "Refresh connection status"}</button>
+          </div>
+          <div className="panel settings-panel">
+            <div className="panel-heading"><div><h2>Outreach automation</h2><p>The existing Apollo sequence manages follow-up timing after enrollment.</p></div><span className="status-badge waiting">Not active</span></div>
+            <p><Workflow size={16} /> Sequence: Mazion | AI Automation | B2B Services</p>
+            <p><Check size={16} /> Sequence reference configured: {integrations?.apollo.sequenceConfigured ? "yes" : "no"}</p>
+            <p><Clock3 size={16} /> Current setup needs review: the sequence is inactive, the email templates are awaiting review, and three follow-up subject lines are blank.</p>
+            <p className="muted">We will keep it inactive until the sender mailbox is connected and those templates are approved. After that, it can run the four email steps and use Apollo's schedule and reply-pause rules.</p>
+          </div>
+          <div className="panel settings-panel">
+            <h2>Current safety settings</h2>
+            <p><ShieldCheck size={16} /> No email has been sent from this app during setup.</p>
+            <p><Workflow size={16} /> No outreach sequence has been activated.</p>
+          </div>
+        </div>}
       </section>
       <footer className="app-footer"><span>Small Business Agent</span><span><ShieldCheck size={13} /> Draft-first by design</span></footer>
     </main>
