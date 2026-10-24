@@ -9,10 +9,12 @@ const DraftOutput = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  // Cost guard: no model call occurs until an AI Gateway key and an explicit model are configured.
-  if (!process.env.AI_GATEWAY_API_KEY || !process.env.AI_DRAFT_MODEL) {
+  // AI Gateway authenticates hosted Vercel deployments with OIDC. Local/dev builds can use
+  // AI_GATEWAY_API_KEY instead. Never expose either credential to the browser.
+  const gatewayAuthConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
+  if (!gatewayAuthConfigured || !process.env.AI_DRAFT_MODEL) {
     return NextResponse.json(
-      { error: "AI drafting is not enabled yet. Configure an AI Gateway key and model only after reviewing usage costs. You can still create a template draft." },
+      { error: "AI drafting is not configured on this deployment yet. Add a server-side AI Gateway key for non-Vercel environments or verify the deployment's Vercel OIDC identity." },
       { status: 503 },
     );
   }
@@ -64,6 +66,8 @@ export async function POST(request: NextRequest) {
   try {
     const { output } = await generateText({
       model: process.env.AI_DRAFT_MODEL,
+      maxOutputTokens: 500,
+      temperature: 0.3,
       output: Output.object({ schema: DraftOutput }),
       system: "You write concise, personalised first-contact business emails. Do not invent facts, claims, existing relationships, customer metrics, or a prior conversation. Use only the supplied lead and research details. If the research is thin, keep the email honest and general. No manipulative urgency. No attachments or links unless explicitly supplied. Return a subject and body only.",
       prompt: JSON.stringify({ lead, research: researchSummary, instructions: "Draft a warm, specific, low-pressure business introduction with one clear next step. Keep it under 150 words. Use the contact's first name if provided; otherwise use a neutral greeting." }),
