@@ -38,11 +38,12 @@ Requirements: Node.js 22 or newer and npm.
    ```dotenv
    NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+NEXT_PUBLIC_SITE_URL=https://your-deployed-app-url
    ```
 
    Never put a Supabase `service_role` or secret API key into a `NEXT_PUBLIC_` variable or client-side code.
 
-3. In Supabase Auth settings, configure the local callback URL `http://localhost:3000/auth/callback` and your eventual app URL when you have one. Keep email confirmation enabled if that matches your intended login flow.
+3. In Supabase Auth → URL Configuration, set Site URL to your stable hosted app URL and add that URL plus `http://localhost:3000/**` to Redirect URLs. The hosted URL must exactly match `NEXT_PUBLIC_SITE_URL`; this ensures email confirmation works when the email is opened on a phone rather than the local development machine. Keep email confirmation enabled if that matches your intended login flow.
 4. Install and run:
 
    ```bash
