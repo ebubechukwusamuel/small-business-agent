@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
   }
 
-  const aiKeyConfigured = Boolean(process.env.AI_GATEWAY_API_KEY);
+  const aiKeyConfigured = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN);
   const aiModel = process.env.AI_DRAFT_MODEL || null;
   const apolloKeyConfigured = Boolean(process.env.APOLLO_API_KEY);
   const sequenceConfigured = Boolean(process.env.APOLLO_SEQUENCE_ID);
@@ -20,6 +20,7 @@ export async function GET() {
   let apolloConnectionError: string | null = null;
   let sequenceActive: boolean | null = null;
   let sequenceName: string | null = null;
+  let sequenceActiveContacts = 0;
   const sequenceTemplatesApproved = process.env.APOLLO_SEQUENCE_READY === "true";
 
   if (apolloKeyConfigured) {
@@ -32,12 +33,22 @@ export async function GET() {
       if (sequenceConfigured) {
         const sequenceId = process.env.APOLLO_SEQUENCE_ID!;
         const search = await (await import("@/lib/apollo")).apolloRequest<{
-          emailer_campaigns?: Array<{ id?: string; name?: string; active?: boolean }>;
-        }>("/emailer_campaigns/search?q_name=" + encodeURIComponent("Mazion | AI Automation | B2B Services") + "&per_page=10&page=1");
+          emailer_campaigns?: Array<{
+            id?: string;
+            name?: string;
+            active?: boolean;
+            contact_statuses?: { active?: number };
+            unique_scheduled?: number;
+          }>;
+        }>("/emailer_campaigns/search", {
+          method: "POST",
+          body: JSON.stringify({ q_name: "Mazion | AI Automation | B2B Services", per_page: 10, page: 1 }),
+        });
         const campaign = (search.emailer_campaigns || []).find((item) => item.id === sequenceId);
         if (campaign) {
           sequenceActive = Boolean(campaign.active);
           sequenceName = campaign.name || null;
+          sequenceActiveContacts = campaign.contact_statuses?.active ?? campaign.unique_scheduled ?? 0;
         }
       }
     } catch (err) {
@@ -61,6 +72,7 @@ export async function GET() {
       sequenceConfigured,
       sequenceActive,
       sequenceName,
+      sequenceActiveContacts,
       sequenceTemplatesApproved,
       canActivateSequence: apolloKeyConfigured && mailboxCount > 0 && sequenceConfigured && sequenceTemplatesApproved && sequenceActive === false,
       liveSendReady: apolloKeyConfigured && mailboxCount > 0,
