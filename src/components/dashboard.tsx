@@ -101,6 +101,9 @@ export default function Dashboard() {
     if (!newWorkspaceName.trim()) return;
     setBusy(true);
     try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw new Error("Your session has expired. Sign in again before creating a workspace.");
+      setUserId(user.id);
       const slug = newWorkspaceName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + crypto.randomUUID().slice(0, 5);
       // The database derives owner_id from auth.uid() inside an invoker-rights RPC.
       // This avoids trusting a potentially stale client-side userId state value.
@@ -114,7 +117,6 @@ export default function Dashboard() {
       const created = { ...row, role: "owner" } as Workspace;
       setWorkspaces(current => [...current.filter(w => w.id !== created.id), created]);
       setWorkspaceId(created.id);
-      setUserId(current => current || userId);
       notify("Workspace created.");
     } catch (e) {
       const detail = e instanceof Error
